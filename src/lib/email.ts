@@ -2,9 +2,6 @@ import { Resend } from "resend";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM = process.env.RESEND_FROM ?? "Skin Clinic GT <onboarding@resend.dev>";
-
 interface Medicamento {
   nombre: string;
   dosis?: string;
@@ -32,6 +29,9 @@ export async function enviarRecetaEmail({
   notas?: string | null;
   medicamentos?: Medicamento[] | null;
 }) {
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  const FROM = process.env.RESEND_FROM ?? "Skin Clinic GT <onboarding@resend.dev>";
+
   const fechaStr = format(new Date(fechaConsulta), "d 'de' MMMM yyyy", { locale: es });
 
   const html = buildRecetaHtml({
