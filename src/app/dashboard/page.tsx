@@ -3,7 +3,9 @@ import { format, startOfDay, endOfDay } from "date-fns";
 import { es } from "date-fns/locale";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, Users, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { Calendar, Users, CheckCircle2, Clock } from "lucide-react";
+import { ConfirmarSolicitudBtn } from "@/components/dashboard/confirmar-solicitud-btn";
+import { CancelarSolicitudBtn } from "@/components/portal/cancelar-btn";
 
 const ESTADO_CONFIG: Record<
   string,
@@ -45,6 +47,13 @@ const SEDE_DOTS: Record<string, string> = {
 export default async function DashboardPage() {
   const supabase = await createClient();
   const hoy = new Date();
+
+  const { data: solicitudes } = await supabase
+    .from("solicitudes_cita")
+    .select("id, nombre, telefono, email, sede, fecha_preferida, motivo, estado, creado_en")
+    .in("estado", ["pendiente", "agendada"])
+    .order("creado_en", { ascending: false })
+    .limit(20);
 
   const { data: consultas } = await supabase
     .from("consultas")
@@ -126,6 +135,50 @@ export default async function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {/* Solicitudes pendientes */}
+      {solicitudes && solicitudes.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-sm font-semibold text-foreground mb-3">
+            Solicitudes de cita
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              ({solicitudes.filter(s => s.estado === "pendiente").length} pendientes)
+            </span>
+          </h2>
+          <div className="flex flex-col gap-2">
+            {solicitudes.map((s) => (
+              <div key={s.id}
+                   className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 rounded-xl border border-border/60 bg-card">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className={`inline-block h-1.5 w-1.5 rounded-full flex-shrink-0 ${
+                      s.estado === "pendiente" ? "bg-amber-400" : "bg-green-500"
+                    }`} />
+                    <span className="text-[11px] font-medium text-muted-foreground capitalize">{s.estado}</span>
+                    {s.fecha_preferida && (
+                      <span className="text-[11px] text-muted-foreground">
+                        · {format(new Date(s.fecha_preferida), "d MMM yyyy", { locale: es })}
+                      </span>
+                    )}
+                    {s.sede && s.sede !== "Sin preferencia" && (
+                      <span className="text-[11px] text-muted-foreground">· {s.sede}</span>
+                    )}
+                  </div>
+                  <p className="text-sm font-medium text-foreground">{s.nombre}</p>
+                  <p className="text-xs text-muted-foreground">{s.telefono}{s.email ? ` · ${s.email}` : ""}</p>
+                  {s.motivo && (
+                    <p className="text-xs text-muted-foreground/70 mt-0.5 line-clamp-1">{s.motivo}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {s.estado === "pendiente" && <ConfirmarSolicitudBtn solicitudId={s.id} />}
+                  <CancelarSolicitudBtn solicitudId={s.id} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Agenda del día */}
       <div>

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useActionState } from "react";
-import { solicitarCita, loginPortal, type SolicitudState, type PortalLoginState } from "./actions";
+import { useEffect, useActionState, useState, useRef } from "react";
+import { solicitarCita, loginPortal, buscarPacientePorDPI, type SolicitudState, type PortalLoginState } from "./actions";
 
 const SEDES = ["Integra", "Decorísima", "Galerías Tiffany"];
 
@@ -25,8 +25,27 @@ const initPortal: PortalLoginState = { status: "idle" };
 export default function LandingPage() {
   const [state, action, pending]             = useActionState(solicitarCita, initState);
   const [portalState, portalAction, portalPending] = useActionState(loginPortal, initPortal);
+  const [autoFill, setAutoFill] = useState<{ nombre: string; telefono: string; email: string | null } | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
+  const nombreRef = useRef<HTMLInputElement>(null);
+  const telefonoRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
 
   useScrollReveal();
+
+  async function handleDpiBlur(e: React.FocusEvent<HTMLInputElement>) {
+    const dpi = e.target.value.trim();
+    if (!dpi) return;
+    setLookingUp(true);
+    const paciente = await buscarPacientePorDPI(dpi);
+    setLookingUp(false);
+    if (paciente) {
+      setAutoFill(paciente);
+      if (nombreRef.current && !nombreRef.current.value) nombreRef.current.value = paciente.nombre;
+      if (telefonoRef.current && !telefonoRef.current.value) telefonoRef.current.value = paciente.telefono;
+      if (emailRef.current && !emailRef.current.value && paciente.email) emailRef.current.value = paciente.email;
+    }
+  }
 
   return (
     <div style={{ fontFamily: "var(--font-geist-sans)", background: "oklch(0.988 0.003 85)", color: "oklch(0.145 0 0)", minHeight: "100vh" }}>
@@ -156,38 +175,47 @@ export default function LandingPage() {
               </div>
             ) : (
               <form action={action} className="flex flex-col gap-5">
-                <div className="grid grid-cols-2 gap-5">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] tracking-wider uppercase text-white/60 font-medium">
-                      Nombre completo *
-                    </label>
-                    <input name="nombre" required placeholder="Ana García López"
-                           className="land-input text-white placeholder:text-white/30 border-white/25 focus:border-white/80" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
+                {/* DPI + auto-fill indicator */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
                     <label className="text-[10px] tracking-wider uppercase text-white/60 font-medium">
                       DPI
                     </label>
-                    <input name="dpi" placeholder="1234567890101"
-                           className="land-input text-white placeholder:text-white/30 border-white/25 focus:border-white/80" />
+                    {lookingUp && (
+                      <span className="text-[10px] text-white/50">Buscando…</span>
+                    )}
+                    {autoFill && !lookingUp && (
+                      <span className="text-[10px] text-white/80 font-medium">Paciente encontrado ✓</span>
+                    )}
                   </div>
+                  <input name="dpi" placeholder="1234567890101"
+                         onBlur={handleDpiBlur}
+                         className="land-input text-white placeholder:text-white/30 border-white/25 focus:border-white/80" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-5">
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[10px] tracking-wider uppercase text-white/60 font-medium">
-                      Teléfono *
+                      Nombre completo *
                     </label>
-                    <input name="telefono" required placeholder="5555 0000" type="tel"
+                    <input ref={nombreRef} name="nombre" required placeholder="Ana García López"
                            className="land-input text-white placeholder:text-white/30 border-white/25 focus:border-white/80" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[10px] tracking-wider uppercase text-white/60 font-medium">
-                      Correo
+                      Teléfono *
                     </label>
-                    <input name="email" placeholder="ana@correo.com" type="email"
+                    <input ref={telefonoRef} name="telefono" required placeholder="5555 0000" type="tel"
                            className="land-input text-white placeholder:text-white/30 border-white/25 focus:border-white/80" />
                   </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] tracking-wider uppercase text-white/60 font-medium">
+                    Correo
+                  </label>
+                  <input ref={emailRef} name="email" placeholder="ana@correo.com" type="email"
+                         className="land-input text-white placeholder:text-white/30 border-white/25 focus:border-white/80" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-5">

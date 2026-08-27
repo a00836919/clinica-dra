@@ -67,6 +67,55 @@ export async function solicitarCita(
   return { status: "success" };
 }
 
+// ── Lookup de paciente por DPI (para autocompletar formulario) ────────────────
+
+export async function buscarPacientePorDPI(dpi: string): Promise<{
+  nombre: string;
+  telefono: string;
+  email: string | null;
+} | null> {
+  if (!dpi?.trim()) return null;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("pacientes")
+    .select("primer_nombre, primer_apellido, segundo_apellido, telefono, email")
+    .eq("numero_identificacion", dpi.trim())
+    .single();
+  if (!data) return null;
+  const nombre = [data.primer_nombre, data.primer_apellido, data.segundo_apellido]
+    .filter(Boolean).join(" ");
+  return { nombre, telefono: data.telefono, email: data.email };
+}
+
+// ── Confirmar solicitud de cita (secretaria) ───────────────────────────────────
+
+export async function confirmarSolicitud(solicitudId: string): Promise<{ error?: string }> {
+  const supabase = await createClient();
+
+  const { data: solicitud, error } = await supabase
+    .from("solicitudes_cita")
+    .update({ estado: "agendada" })
+    .eq("id", solicitudId)
+    .select("nombre, email, fecha_preferida, sede")
+    .single();
+
+  if (error || !solicitud) return { error: "No se pudo confirmar la solicitud." };
+
+  if (solicitud.email) {
+    try {
+      const { enviarConfirmacionAprobacion } = await import("@/lib/email");
+      await enviarConfirmacionAprobacion({
+        to: solicitud.email,
+        nombre: solicitud.nombre,
+        fechaPreferida: solicitud.fecha_preferida,
+        sede: solicitud.sede,
+      });
+    } catch { /* no bloquea */ }
+  }
+
+  return {};
+}
+
 // ── Finalizar consulta + enviar receta por correo ──────────────────────────────
 
 export async function finalizarConsulta(consultaId: string): Promise<{ error?: string }> {
