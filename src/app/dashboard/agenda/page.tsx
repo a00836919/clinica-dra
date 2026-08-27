@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { format, startOfWeek, addDays, startOfDay, endOfDay } from "date-fns";
 import { es } from "date-fns/locale";
 import { Badge } from "@/components/ui/badge";
+import { FinalizarBtn } from "@/components/dashboard/finalizar-btn";
 
 const ESTADO_CONFIG: Record<string, { label: string; dot: string }> = {
   agendada: { label: "Agendada", dot: "oklch(0.52 0.12 250)" },
@@ -116,6 +117,7 @@ export default async function AgendaPage() {
                         <p className="text-[9px] text-muted-foreground/60 mt-1 truncate">
                           {c.sede}
                         </p>
+                        <FinalizarBtn consultaId={c.id} estado={c.estado} />
                       </div>
                     );
                   })
