@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useActionState } from "react";
-import { solicitarCita, type SolicitudState } from "./actions";
+import { solicitarCita, loginPortal, type SolicitudState, type PortalLoginState } from "./actions";
 
 const SEDES = [
   { num: "01", name: "Integra",          city: "Ciudad de Guatemala" },
@@ -36,9 +36,11 @@ function useScrollReveal() {
 }
 
 const initState: SolicitudState = { status: "idle" };
+const initPortal: PortalLoginState = { status: "idle" };
 
 export default function LandingPage() {
   const [state, action, pending] = useActionState(solicitarCita, initState);
+  const [portalState, portalAction, portalPending] = useActionState(loginPortal, initPortal);
 
   useScrollReveal();
 
@@ -52,10 +54,10 @@ export default function LandingPage() {
           Skin Clinic GT
         </span>
         <div className="hidden md:flex items-center gap-8">
-          {["Servicios", "Nosotros", "Sedes"].map((item) => (
-            <a key={item} href={`#${item.toLowerCase()}`}
+          {[["Servicios","servicios"],["Nosotros","nosotros"],["Solicitar cita","cita"],["Mis citas","mis-citas"]].map(([label, id]) => (
+            <a key={id} href={`#${id}`}
                className="text-[12px] text-[oklch(0.52_0.012_40)] hover:text-foreground transition-colors tracking-wide">
-              {item}
+              {label}
             </a>
           ))}
         </div>
@@ -351,6 +353,71 @@ export default function LandingPage() {
                 </button>
               </form>
             )}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Portal paciente ── */}
+      <section id="mis-citas" className="px-8 md:px-14 py-24 border-t border-[oklch(0.91_0.008_60)]">
+        <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-16 items-start">
+          {/* Copy */}
+          <div className="reveal">
+            <p className="text-[10px] tracking-[0.25em] uppercase text-[oklch(0.72_0.065_25)] font-medium mb-4">
+              Pacientes
+            </p>
+            <h2 className="text-[clamp(1.8rem,4vw,2.8rem)] font-medium leading-snug mb-5"
+                style={{ fontFamily: "var(--font-playfair)" }}>
+              Consulta tus citas<br />
+              <span className="italic font-normal" style={{ color: "oklch(0.72 0.065 25)" }}>y tus recetas</span>
+            </h2>
+            <p className="text-[14px] text-[oklch(0.48_0.012_40)] leading-[1.8]">
+              Ingresa tu número de DPI y fecha de nacimiento para ver el historial
+              de tus consultas, diagnósticos, medicamentos y las solicitudes de cita
+              que hayas enviado.
+            </p>
+          </div>
+
+          {/* Form */}
+          <div className="reveal reveal-d1">
+            <form action={portalAction} className="flex flex-col gap-5">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] tracking-wider uppercase text-[oklch(0.55_0.012_40)] font-medium">
+                  Número de DPI
+                </label>
+                <input
+                  name="dpi"
+                  required
+                  placeholder="1234567890101"
+                  className="clinic-input w-full rounded-xl border border-[oklch(0.88_0.01_60)] px-4 py-3 text-sm bg-white"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] tracking-wider uppercase text-[oklch(0.55_0.012_40)] font-medium">
+                  Fecha de nacimiento
+                </label>
+                <input
+                  name="fecha_nacimiento"
+                  type="date"
+                  required
+                  className="clinic-input w-full rounded-xl border border-[oklch(0.88_0.01_60)] px-4 py-3 text-sm bg-white"
+                />
+              </div>
+
+              {portalState.status === "error" && (
+                <p className="text-[13px] text-[oklch(0.5_0.14_25)] bg-[oklch(0.97_0.01_25)] border border-[oklch(0.88_0.04_25)] rounded-lg px-4 py-3">
+                  {portalState.message}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={portalPending}
+                className="btn-fill h-12 w-full rounded-full text-[13px] font-medium text-white disabled:opacity-60 disabled:cursor-not-allowed"
+                style={{ background: "oklch(0.72 0.065 25)" }}
+              >
+                {portalPending ? "Verificando…" : "Ver mis citas y recetas →"}
+              </button>
+            </form>
           </div>
         </div>
       </section>

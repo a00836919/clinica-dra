@@ -15,7 +15,7 @@ const ESTADO_LABEL: Record<string, { label: string; color: string }> = {
 
 export default async function MisCitasPage() {
   const patientId = await getPortalPatientId();
-  if (!patientId) redirect("/portal");
+  if (!patientId) redirect("/#mis-citas");
 
   const supabase = await createClient();
 
@@ -44,7 +44,7 @@ export default async function MisCitasPage() {
       .order("fecha", { ascending: false }),
   ]);
 
-  if (!paciente) redirect("/portal");
+  if (!paciente) redirect("/#mis-citas");
 
   return (
     <div

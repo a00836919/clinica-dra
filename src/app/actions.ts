@@ -138,12 +138,12 @@ export async function loginPortal(
   }
 
   await setPortalCookie(paciente.id);
-  redirect("/portal/mis-citas");
+  redirect("/mis-citas");
 }
 
 export async function logoutPortal() {
   await clearPortalCookie();
-  redirect("/portal");
+  redirect("/#mis-citas");
 }
 
 export async function cancelarSolicitud(solicitudId: string): Promise<{ error?: string }> {
