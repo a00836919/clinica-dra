@@ -156,12 +156,21 @@ export default function LandingPage() {
               </div>
             ) : (
               <form action={action} className="flex flex-col gap-5">
-                <div className="col-span-2 flex flex-col gap-1.5">
-                  <label className="text-[10px] tracking-wider uppercase text-white/60 font-medium">
-                    Nombre completo *
-                  </label>
-                  <input name="nombre" required placeholder="Ana García López"
-                         className="land-input text-white placeholder:text-white/30 border-white/25 focus:border-white/80" />
+                <div className="grid grid-cols-2 gap-5">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] tracking-wider uppercase text-white/60 font-medium">
+                      Nombre completo *
+                    </label>
+                    <input name="nombre" required placeholder="Ana García López"
+                           className="land-input text-white placeholder:text-white/30 border-white/25 focus:border-white/80" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] tracking-wider uppercase text-white/60 font-medium">
+                      DPI
+                    </label>
+                    <input name="dpi" placeholder="1234567890101"
+                           className="land-input text-white placeholder:text-white/30 border-white/25 focus:border-white/80" />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-5">

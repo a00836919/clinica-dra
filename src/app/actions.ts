@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { enviarRecetaEmail } from "@/lib/email";
+import { enviarRecetaEmail, enviarConfirmacionSolicitud } from "@/lib/email";
 import { setPortalCookie, clearPortalCookie } from "@/lib/portal-session";
 import { redirect } from "next/navigation";
 
@@ -18,17 +18,33 @@ export async function solicitarCita(
 ): Promise<SolicitudState> {
   const nombre = formData.get("nombre")?.toString().trim();
   const telefono = formData.get("telefono")?.toString().trim();
-  const email = formData.get("email")?.toString().trim() || null;
+  let email = formData.get("email")?.toString().trim() || null;
   const sede = formData.get("sede")?.toString() || "Sin preferencia";
   const motivo = formData.get("motivo")?.toString().trim() || null;
   const fechaStr = formData.get("fecha_preferida")?.toString();
   const fecha_preferida = fechaStr ? fechaStr : null;
+  const dpi = formData.get("dpi")?.toString().trim() || null;
 
   if (!nombre || !telefono) {
     return { status: "error", message: "Nombre y teléfono son obligatorios." };
   }
 
   const supabase = await createClient();
+
+  // Vincular con paciente existente si hay DPI
+  let paciente_id: string | null = null;
+  if (dpi) {
+    const { data: paciente } = await supabase
+      .from("pacientes")
+      .select("id, email")
+      .eq("numero_identificacion", dpi)
+      .single();
+    if (paciente) {
+      paciente_id = paciente.id;
+      if (!email && paciente.email) email = paciente.email;
+    }
+  }
+
   const { error } = await supabase.from("solicitudes_cita").insert({
     nombre,
     telefono,
@@ -36,9 +52,18 @@ export async function solicitarCita(
     sede,
     motivo,
     fecha_preferida,
+    paciente_id,
   });
 
   if (error) return { status: "error", message: "No pudimos registrar tu solicitud. Intenta de nuevo." };
+
+  // Enviar confirmación por correo si hay email
+  if (email) {
+    try {
+      await enviarConfirmacionSolicitud({ to: email, nombre, fechaPreferida: fecha_preferida, sede });
+    } catch { /* no bloquea el flujo */ }
+  }
+
   return { status: "success" };
 }
 
