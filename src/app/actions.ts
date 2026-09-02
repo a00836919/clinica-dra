@@ -346,8 +346,8 @@ export async function finalizarConsulta(consultaId: string): Promise<{ error?: s
     medicamentos: receta?.medicamentos ?? null,
   });
 
-  // Solo se marca como enviada si Resend la aceptó, para que un reintento
-  // posterior siga siendo posible.
+  // Solo se marca como enviada si el servidor de correo la aceptó, para que
+  // un reintento posterior siga siendo posible.
   if (envio.ok) {
     await supabase
       .from("consultas")

@@ -1,4 +1,4 @@
-import { Resend } from "resend";
+import nodemailer, { type Transporter } from "nodemailer";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -16,13 +16,6 @@ const COLORS = {
 
 const FOOTER_BASE = "Skin Clinic GT · Dermatología &amp; Estética Avanzada · Guatemala";
 
-function resend() {
-  return new Resend(process.env.RESEND_API_KEY);
-}
-
-function from() {
-  return process.env.RESEND_FROM ?? "Skin Clinic GT <onboarding@resend.dev>";
-}
 
 /** Escapa datos que vienen de la base de datos antes de meterlos en el HTML. */
 function esc(value: string | null | undefined) {
@@ -109,7 +102,77 @@ function ofuscar(correo: string) {
   return `${local.slice(0, 1)}***@${dominio}`;
 }
 
-let avisoRemitente = false;
+// ── Transporte: Gmail de la clínica por SMTP ─────────────────────────────────
+// No hay dominio propio, así que los correos salen desde la cuenta de Gmail de
+// la clínica con una contraseña de aplicación. Gmail los firma como suyos
+// (SPF y DKIM propios), que entrega bastante mejor que mandar "desde" un
+// gmail.com a través de un proveedor externo, donde DMARC suele fallar.
+//
+// El día que haya dominio, esto es lo único que cambia: el resto del archivo
+// —plantillas, resultados, llamadas— se queda igual.
+
+const NOMBRE_REMITENTE = process.env.EMAIL_FROM_NAME ?? "Skin Clinic GT";
+
+let transporte: Transporter | null = null;
+let avisoConfig = false;
+
+function obtenerTransporte(): Transporter | null {
+  const user = process.env.GMAIL_USER;
+  // Google entrega la contraseña de aplicación en bloques separados por
+  // espacios; SMTP la quiere sin ellos. Es el tropiezo más común al copiarla.
+  const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, "");
+
+  if (!user || !pass) {
+    if (!avisoConfig) {
+      avisoConfig = true;
+      console.error(
+        "[email] Faltan GMAIL_USER y/o GMAIL_APP_PASSWORD. Ningún correo va a " +
+          "salir. La contraseña de aplicación se genera en la Cuenta de Google " +
+          "→ Seguridad → Contraseñas de aplicaciones (requiere verificación en " +
+          "dos pasos activada).",
+      );
+    }
+    return null;
+  }
+
+  transporte ??= nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 465,
+    secure: true,
+    auth: { user, pass },
+    // Sin límites, un SMTP que no responde deja al paciente con el formulario
+    // girando: es preferible fallar rápido y avisar que el correo no salió.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
+    pool: true,
+    maxConnections: 2,
+  });
+
+  return transporte;
+}
+
+/** Traduce los fallos típicos de Gmail a algo accionable en los logs. */
+function explicarFallo(err: unknown): string {
+  const e = err as { code?: string; responseCode?: number; message?: string };
+  const texto = e?.message ?? String(err);
+
+  if (e?.code === "EAUTH" || e?.responseCode === 535) {
+    return (
+      "Gmail rechazó las credenciales. Revisa que GMAIL_APP_PASSWORD sea una " +
+      "contraseña de aplicación (16 caracteres) y no la contraseña normal de la " +
+      "cuenta, y que la verificación en dos pasos esté activada."
+    );
+  }
+  if (e?.code === "EENVELOPE") return `Dirección de destino inválida: ${texto}`;
+  if (e?.code === "ETIMEDOUT" || e?.code === "ECONNECTION") {
+    return `No se pudo conectar con smtp.gmail.com: ${texto}`;
+  }
+  if (e?.responseCode === 550 || e?.responseCode === 552) {
+    return `Gmail rechazó el mensaje: ${texto}`;
+  }
+  return texto;
+}
 
 async function enviar({
   to,
@@ -120,45 +183,29 @@ async function enviar({
   subject: string;
   html: string;
 }): Promise<ResultadoEmail> {
-  const remitente = from();
-
-  // Causa más común de "el correo no llega": onboarding@resend.dev es el
-  // remitente compartido de pruebas de Resend y solo entrega al correo del
-  // dueño de la cuenta. A un paciente nunca le va a llegar.
-  if (remitente.includes("onboarding@resend.dev") && !avisoRemitente) {
-    avisoRemitente = true;
-    console.warn(
-      "[email] RESEND_FROM apunta a onboarding@resend.dev, el remitente de pruebas " +
-        "de Resend: solo entrega al correo del dueño de la cuenta, así que los " +
-        "pacientes no van a recibir nada. Verifica un dominio en Resend y cambia " +
-        "RESEND_FROM a una dirección de ese dominio.",
-    );
+  const t = obtenerTransporte();
+  if (!t) {
+    return { ok: false, motivo: "El envío de correos no está configurado." };
   }
 
-  if (!process.env.RESEND_API_KEY) {
-    const motivo = "Falta RESEND_API_KEY";
-    console.error(`[email] "${subject}" no se envió: ${motivo}`);
-    return { ok: false, motivo };
-  }
+  const user = process.env.GMAIL_USER!;
 
   try {
-    const { data, error } = await resend().emails.send({
-      from: remitente,
-      to: [to],
+    const info = await t.sendMail({
+      // Gmail reescribe el remitente a la cuenta autenticada, así que se pone
+      // esa misma dirección y solo se personaliza el nombre visible.
+      from: `"${NOMBRE_REMITENTE}" <${user}>`,
+      to,
+      // Las respuestas del paciente caen en el buzón de la clínica.
+      replyTo: process.env.EMAIL_REPLY_TO || user,
       subject,
       html,
     });
 
-    if (error) {
-      const motivo = error.message || error.name || "Resend rechazó el envío";
-      console.error(`[email] "${subject}" → ${ofuscar(to)} rechazado por Resend:`, motivo);
-      return { ok: false, motivo };
-    }
-
-    console.log(`[email] "${subject}" → ${ofuscar(to)} enviado (id ${data?.id ?? "?"})`);
-    return { ok: true, id: data?.id };
+    console.log(`[email] "${subject}" → ${ofuscar(to)} enviado (${info.messageId})`);
+    return { ok: true, id: info.messageId };
   } catch (err) {
-    const motivo = err instanceof Error ? err.message : String(err);
+    const motivo = explicarFallo(err);
     console.error(`[email] "${subject}" → ${ofuscar(to)} falló:`, motivo);
     return { ok: false, motivo };
   }
