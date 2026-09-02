@@ -172,7 +172,7 @@ export default async function DashboardPage() {
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {s.estado === "pendiente" && <ConfirmarSolicitudBtn solicitudId={s.id} />}
-                  <CancelarSolicitudBtn solicitudId={s.id} />
+                  <CancelarSolicitudBtn solicitudId={s.id} scope="clinica" />
                 </div>
               </div>
             ))}

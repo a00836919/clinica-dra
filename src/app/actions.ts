@@ -1,127 +1,303 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { enviarRecetaEmail, enviarConfirmacionSolicitud } from "@/lib/email";
-import { setPortalCookie, clearPortalCookie } from "@/lib/portal-session";
+import { createAdminClient, ERROR_CONFIG } from "@/lib/supabase/admin";
+import {
+  enviarRecetaEmail,
+  enviarConfirmacionSolicitud,
+  enviarConfirmacionAprobacion,
+  enviarConfirmacionCancelacion,
+} from "@/lib/email";
+import { setPortalCookie, clearPortalCookie, getPortalPatientId } from "@/lib/portal-session";
 import { redirect } from "next/navigation";
 
-// ── Solicitud de cita (landing page pública) ──────────────────────────────────
+// ── Verificar paciente por DPI + fecha de nacimiento ──────────────────────────
+
+export type PacienteResumen = {
+  id: string;
+  primer_nombre: string;
+  primer_apellido: string;
+  telefono: string;
+  email: string | null;
+};
+
+export type VerifyResult =
+  | { status: "found"; paciente: PacienteResumen }
+  | { status: "not_found" }
+  | { status: "error"; message: string };
+
+export async function verificarPaciente(dpi: string, fechaNacimiento: string): Promise<VerifyResult> {
+  const dpiTrim = dpi?.trim();
+  const fecha = fechaNacimiento?.trim();
+  if (!dpiTrim || !fecha) {
+    return { status: "error", message: "Completa ambos campos." };
+  }
+
+  const supabase = createAdminClient();
+  if (!supabase) return { status: "error", message: ERROR_CONFIG };
+
+  const { data: paciente, error } = await supabase
+    .from("pacientes")
+    .select("id, primer_nombre, primer_apellido, telefono, email")
+    .eq("numero_identificacion", dpiTrim)
+    .eq("fecha_nacimiento", fecha)
+    .maybeSingle();
+
+  // Un fallo de base de datos no es lo mismo que "no existe": si lo tratáramos
+  // igual, mandaríamos a registrarse a un paciente que sí está en el sistema.
+  if (error) {
+    console.error("[citas] verificarPaciente falló:", error);
+    return { status: "error", message: ERROR_CONFIG };
+  }
+
+  if (!paciente) return { status: "not_found" };
+
+  await setPortalCookie(paciente.id);
+  return { status: "found", paciente };
+}
+
+// ── Solicitar cita — paciente existente (usa sesión del portal) ───────────────
 
 export type SolicitudState =
   | { status: "idle" }
   | { status: "success" }
   | { status: "error"; message: string };
 
-export async function solicitarCita(
-  _prev: SolicitudState,
-  formData: FormData
-): Promise<SolicitudState> {
-  const nombre = formData.get("nombre")?.toString().trim();
-  const telefono = formData.get("telefono")?.toString().trim();
-  let email = formData.get("email")?.toString().trim() || null;
+export async function solicitarCitaExistente(formData: FormData): Promise<SolicitudState> {
+  const patientId = await getPortalPatientId();
+  if (!patientId) return { status: "error", message: "Sesión expirada. Ingresa tus datos de nuevo." };
+
   const sede = formData.get("sede")?.toString() || "Sin preferencia";
   const motivo = formData.get("motivo")?.toString().trim() || null;
   const fechaStr = formData.get("fecha_preferida")?.toString();
   const fecha_preferida = fechaStr ? fechaStr : null;
-  const dpi = formData.get("dpi")?.toString().trim() || null;
 
-  if (!nombre || !telefono) {
-    return { status: "error", message: "Nombre y teléfono son obligatorios." };
+  const supabase = createAdminClient();
+  if (!supabase) return { status: "error", message: ERROR_CONFIG };
+
+  const { data: paciente, error: pacienteError } = await supabase
+    .from("pacientes")
+    .select("primer_nombre, primer_apellido, telefono, email")
+    .eq("id", patientId)
+    .maybeSingle();
+
+  if (pacienteError) {
+    console.error("[citas] solicitarCitaExistente — lectura de paciente falló:", pacienteError);
+    return { status: "error", message: ERROR_CONFIG };
+  }
+  if (!paciente) return { status: "error", message: "No encontramos tu registro." };
+
+  const nombre = `${paciente.primer_nombre} ${paciente.primer_apellido}`;
+
+  const { error } = await supabase.from("solicitudes_cita").insert({
+    nombre,
+    telefono: paciente.telefono,
+    email: paciente.email,
+    sede,
+    motivo,
+    fecha_preferida,
+    paciente_id: patientId,
+  });
+
+  if (error) {
+    console.error("[citas] solicitarCitaExistente — insert de solicitud falló:", error);
+    return { status: "error", message: "No pudimos registrar tu solicitud." };
   }
 
-  const supabase = await createClient();
-
-  // Vincular con paciente existente si hay DPI
-  let paciente_id: string | null = null;
-  if (dpi) {
-    const { data: paciente } = await supabase
-      .from("pacientes")
-      .select("id, email")
-      .eq("numero_identificacion", dpi)
-      .single();
-    if (paciente) {
-      paciente_id = paciente.id;
-      if (!email && paciente.email) email = paciente.email;
+  if (paciente.email) {
+    try {
+      await enviarConfirmacionSolicitud({ to: paciente.email, nombre, fechaPreferida: fecha_preferida, sede });
+    } catch (err) {
+      console.error("[email] confirmación solicitud (paciente existente) falló:", err);
     }
   }
 
-  const { error } = await supabase.from("solicitudes_cita").insert({
+  return { status: "success" };
+}
+
+// ── Solicitar cita — paciente nuevo (crea paciente + solicitud + sesión) ──────
+
+export async function solicitarCitaNueva(
+  dpi: string,
+  fechaNacimiento: string,
+  formData: FormData,
+): Promise<SolicitudState> {
+  const primer_nombre = formData.get("primer_nombre")?.toString().trim();
+  const primer_apellido = formData.get("primer_apellido")?.toString().trim();
+  const telefono = formData.get("telefono")?.toString().trim();
+  const email = formData.get("email")?.toString().trim() || null;
+  const sede = formData.get("sede")?.toString() || "Sin preferencia";
+  const motivo = formData.get("motivo")?.toString().trim() || null;
+  const fechaStr = formData.get("fecha_preferida")?.toString();
+  const fecha_preferida = fechaStr ? fechaStr : null;
+
+  if (!primer_nombre || !primer_apellido || !telefono) {
+    return { status: "error", message: "Nombre, apellido y teléfono son obligatorios." };
+  }
+  if (!dpi?.trim() || !fechaNacimiento?.trim()) {
+    return { status: "error", message: "Falta DPI o fecha de nacimiento." };
+  }
+
+  const supabase = createAdminClient();
+  if (!supabase) return { status: "error", message: ERROR_CONFIG };
+
+  // 1. Crear paciente
+  const { data: nuevoPaciente, error: insertError } = await supabase
+    .from("pacientes")
+    .insert({
+      tipo_identificacion: "DPI",
+      numero_identificacion: dpi.trim(),
+      fecha_nacimiento: fechaNacimiento.trim(),
+      primer_nombre,
+      primer_apellido,
+      sexo: "Prefiero no decirlo",
+      telefono,
+      email,
+    })
+    .select("id")
+    .single();
+
+  if (insertError || !nuevoPaciente) {
+    console.error("[citas] solicitarCitaNueva — insert de paciente falló:", insertError);
+    // Un DPI repetido no es un fallo del sistema: es alguien que ya está registrado
+    // pero puso otra fecha de nacimiento.
+    if (insertError?.code === "23505") {
+      return {
+        status: "error",
+        message:
+          "Ese DPI ya está registrado, pero la fecha de nacimiento no coincide. Revísala e intenta de nuevo.",
+      };
+    }
+    return { status: "error", message: "No pudimos crear tu registro. Intenta de nuevo." };
+  }
+
+  // 2. Crear solicitud vinculada
+  const nombre = `${primer_nombre} ${primer_apellido}`;
+  const { error: solError } = await supabase.from("solicitudes_cita").insert({
     nombre,
     telefono,
     email,
     sede,
     motivo,
     fecha_preferida,
-    paciente_id,
+    paciente_id: nuevoPaciente.id,
   });
 
-  if (error) return { status: "error", message: "No pudimos registrar tu solicitud. Intenta de nuevo." };
+  if (solError) {
+    console.error("[citas] solicitarCitaNueva — insert de solicitud falló:", solError);
+    return { status: "error", message: "Te registramos, pero no pudimos guardar la solicitud." };
+  }
 
-  // Enviar confirmación por correo si hay email
+  // 3. Sesión activa para /mis-citas
+  await setPortalCookie(nuevoPaciente.id);
+
+  // 4. Correo de confirmación
   if (email) {
     try {
       await enviarConfirmacionSolicitud({ to: email, nombre, fechaPreferida: fecha_preferida, sede });
-    } catch { /* no bloquea el flujo */ }
+    } catch (err) {
+      console.error("[email] confirmación solicitud (paciente nuevo) falló:", err);
+    }
   }
 
   return { status: "success" };
 }
 
-// ── Lookup de paciente por DPI (para autocompletar formulario) ────────────────
-
-export async function buscarPacientePorDPI(dpi: string): Promise<{
-  nombre: string;
-  telefono: string;
-  email: string | null;
-} | null> {
-  if (!dpi?.trim()) return null;
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("pacientes")
-    .select("primer_nombre, primer_apellido, segundo_apellido, telefono, email")
-    .eq("numero_identificacion", dpi.trim())
-    .single();
-  if (!data) return null;
-  const nombre = [data.primer_nombre, data.primer_apellido, data.segundo_apellido]
-    .filter(Boolean).join(" ");
-  return { nombre, telefono: data.telefono, email: data.email };
-}
-
-// ── Confirmar solicitud de cita (secretaria) ───────────────────────────────────
+// ── Confirmar solicitud (secretaria) ──────────────────────────────────────────
 
 export async function confirmarSolicitud(solicitudId: string): Promise<{ error?: string }> {
   const supabase = await createClient();
 
+  // Solo pasa de "pendiente" a "agendada": evita reenviar el correo en un doble clic.
   const { data: solicitud, error } = await supabase
     .from("solicitudes_cita")
     .update({ estado: "agendada" })
     .eq("id", solicitudId)
+    .eq("estado", "pendiente")
     .select("nombre, email, fecha_preferida, sede")
-    .single();
+    .maybeSingle();
 
-  if (error || !solicitud) return { error: "No se pudo confirmar la solicitud." };
+  if (error) return { error: "No se pudo confirmar la solicitud." };
+  if (!solicitud) return {}; // ya estaba confirmada o cancelada
 
   if (solicitud.email) {
     try {
-      const { enviarConfirmacionAprobacion } = await import("@/lib/email");
       await enviarConfirmacionAprobacion({
         to: solicitud.email,
         nombre: solicitud.nombre,
         fechaPreferida: solicitud.fecha_preferida,
         sede: solicitud.sede,
       });
-    } catch { /* no bloquea */ }
+    } catch (err) {
+      console.error("[email] confirmación aprobación falló:", err);
+    }
   }
 
   return {};
 }
 
-// ── Finalizar consulta + enviar receta por correo ──────────────────────────────
+// ── Cancelar solicitud ────────────────────────────────────────────────────────
+
+async function cancelar(
+  solicitudId: string,
+  origen: "paciente" | "clinica",
+  pacienteId?: string,
+): Promise<{ error?: string }> {
+  // Desde el portal el visitante es anónimo para Supabase, así que va por el
+  // cliente de servicio; desde el dashboard vale la sesión del personal.
+  const supabase = pacienteId ? createAdminClient() : await createClient();
+  if (!supabase) return { error: ERROR_CONFIG };
+
+  let query = supabase
+    .from("solicitudes_cita")
+    .update({ estado: "cancelada" })
+    .eq("id", solicitudId)
+    .neq("estado", "cancelada");
+
+  // Desde el portal, solo el dueño de la solicitud puede cancelarla.
+  if (pacienteId) query = query.eq("paciente_id", pacienteId);
+
+  const { data: solicitud, error } = await query
+    .select("nombre, email, fecha_preferida, sede")
+    .maybeSingle();
+
+  if (error) return { error: "No se pudo cancelar." };
+  if (!solicitud) return { error: "Esta solicitud ya no se puede cancelar." };
+
+  if (solicitud.email) {
+    try {
+      await enviarConfirmacionCancelacion({
+        to: solicitud.email,
+        nombre: solicitud.nombre,
+        fechaPreferida: solicitud.fecha_preferida,
+        sede: solicitud.sede,
+        origen,
+      });
+    } catch (err) {
+      console.error("[email] confirmación cancelación falló:", err);
+    }
+  }
+
+  return {};
+}
+
+/** Cancelación hecha por la secretaria desde el dashboard. */
+export async function cancelarSolicitud(solicitudId: string): Promise<{ error?: string }> {
+  return cancelar(solicitudId, "clinica");
+}
+
+/** Cancelación hecha por el paciente desde /mis-citas — verifica que sea suya. */
+export async function cancelarSolicitudPaciente(solicitudId: string): Promise<{ error?: string }> {
+  const patientId = await getPortalPatientId();
+  if (!patientId) return { error: "Sesión expirada. Ingresa tus datos de nuevo." };
+  return cancelar(solicitudId, "paciente", patientId);
+}
+
+// ── Finalizar consulta + enviar receta por correo ─────────────────────────────
 
 export async function finalizarConsulta(consultaId: string): Promise<{ error?: string }> {
   const supabase = await createClient();
 
-  // 1. Marcar como atendida
   const { data: consulta, error: updateError } = await supabase
     .from("consultas")
     .update({ estado: "atendida" })
@@ -139,11 +315,9 @@ export async function finalizarConsulta(consultaId: string): Promise<{ error?: s
     primer_nombre: string; primer_apellido: string; email: string | null;
   } | null;
 
-  if (!paciente?.email) return {}; // Sin email, finalizado pero sin envío
+  if (!paciente?.email) return {};
+  if (consulta.receta_enviada) return {};
 
-  if (consulta.receta_enviada) return {}; // Ya enviada
-
-  // 2. Buscar receta asociada
   const { data: receta } = await supabase
     .from("recetas")
     .select("medicamentos")
@@ -152,7 +326,6 @@ export async function finalizarConsulta(consultaId: string): Promise<{ error?: s
 
   const doctora = Array.isArray(consulta.doctora) ? consulta.doctora[0] : consulta.doctora as { nombre_completo: string } | null;
 
-  // 3. Enviar email
   try {
     await enviarRecetaEmail({
       to: paciente.email,
@@ -166,67 +339,20 @@ export async function finalizarConsulta(consultaId: string): Promise<{ error?: s
       medicamentos: receta?.medicamentos ?? null,
     });
 
-    // 4. Marcar receta como enviada
     await supabase
       .from("consultas")
       .update({ receta_enviada: true, receta_enviada_en: new Date().toISOString() })
       .eq("id", consultaId);
   } catch (err) {
     console.error("Error enviando receta:", err);
-    // No bloqueamos el flujo si el email falla
   }
 
   return {};
 }
 
-// ── Portal de pacientes ────────────────────────────────────────────────────────
-
-export type PortalLoginState =
-  | { status: "idle" }
-  | { status: "error"; message: string };
-
-export async function loginPortal(
-  _prev: PortalLoginState,
-  formData: FormData
-): Promise<PortalLoginState> {
-  const dpi = formData.get("dpi")?.toString().trim();
-  const fechaNacimiento = formData.get("fecha_nacimiento")?.toString().trim();
-
-  if (!dpi || !fechaNacimiento) {
-    return { status: "error", message: "Completa ambos campos." };
-  }
-
-  // Usamos el supabase service-role-less client — RLS debe permitir esta consulta
-  // (usamos anon key, la tabla pacientes no expone datos sensibles por este path)
-  const supabase = await createClient();
-
-  const { data: paciente } = await supabase
-    .from("pacientes")
-    .select("id, primer_nombre")
-    .eq("numero_identificacion", dpi)
-    .eq("fecha_nacimiento", fechaNacimiento)
-    .single();
-
-  if (!paciente) {
-    return { status: "error", message: "No encontramos un paciente con ese DPI y fecha de nacimiento." };
-  }
-
-  await setPortalCookie(paciente.id);
-  redirect("/mis-citas");
-}
+// ── Portal de pacientes (logout usado por /mis-citas) ─────────────────────────
 
 export async function logoutPortal() {
   await clearPortalCookie();
-  redirect("/#mis-citas");
-}
-
-export async function cancelarSolicitud(solicitudId: string): Promise<{ error?: string }> {
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("solicitudes_cita")
-    .update({ estado: "cancelada" })
-    .eq("id", solicitudId);
-
-  if (error) return { error: "No se pudo cancelar." };
-  return {};
+  redirect("/");
 }

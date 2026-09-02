@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getPortalPatientId } from "@/lib/portal-session";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { CancelarSolicitudBtn } from "@/components/portal/cancelar-btn";
@@ -8,6 +8,7 @@ import { logoutPortal } from "@/app/actions";
 
 const ESTADO_LABEL: Record<string, { label: string; color: string }> = {
   pendiente:  { label: "Pendiente",  color: "oklch(0.55 0.09 70)" },
+  agendada:   { label: "Confirmada", color: "oklch(0.42 0.12 145)" },
   confirmada: { label: "Confirmada", color: "oklch(0.42 0.12 145)" },
   cancelada:  { label: "Cancelada",  color: "oklch(0.55 0.18 25)" },
   atendida:   { label: "Atendida",   color: "oklch(0.42 0.12 145)" },
@@ -17,7 +18,11 @@ export default async function MisCitasPage() {
   const patientId = await getPortalPatientId();
   if (!patientId) redirect("/#mis-citas");
 
-  const supabase = await createClient();
+  // El paciente es anónimo para Supabase: la identidad ya la verificó
+  // getPortalPatientId() con la cookie firmada, y cada consulta se filtra por
+  // ese id, así que nadie ve datos de otro paciente.
+  const supabase = createAdminClient();
+  if (!supabase) redirect("/#mis-citas");
 
   const [{ data: paciente }, { data: solicitudes }, { data: consultas }] = await Promise.all([
     supabase
@@ -90,7 +95,7 @@ export default async function MisCitasPage() {
             <div className="flex flex-col gap-3">
               {solicitudes.map((s) => {
                 const cfg = ESTADO_LABEL[s.estado] ?? ESTADO_LABEL.pendiente;
-                const canCancel = s.estado === "pendiente" || s.estado === "confirmada";
+                const canCancel = s.estado === "pendiente" || s.estado === "agendada" || s.estado === "confirmada";
                 return (
                   <div
                     key={s.id}
