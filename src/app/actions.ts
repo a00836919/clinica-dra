@@ -60,7 +60,9 @@ export async function verificarPaciente(dpi: string, fechaNacimiento: string): P
 
 export type SolicitudState =
   | { status: "idle" }
-  | { status: "success" }
+  // correoEnviado es false cuando el paciente no dejó correo o cuando el envío
+  // falló: la pantalla de éxito no debe prometer un correo que no salió.
+  | { status: "success"; correoEnviado: boolean }
   | { status: "error"; message: string };
 
 export async function solicitarCitaExistente(formData: FormData): Promise<SolicitudState> {
@@ -104,15 +106,18 @@ export async function solicitarCitaExistente(formData: FormData): Promise<Solici
     return { status: "error", message: "No pudimos registrar tu solicitud." };
   }
 
+  let correoEnviado = false;
   if (paciente.email) {
-    try {
-      await enviarConfirmacionSolicitud({ to: paciente.email, nombre, fechaPreferida: fecha_preferida, sede });
-    } catch (err) {
-      console.error("[email] confirmación solicitud (paciente existente) falló:", err);
-    }
+    const envio = await enviarConfirmacionSolicitud({
+      to: paciente.email,
+      nombre,
+      fechaPreferida: fecha_preferida,
+      sede,
+    });
+    correoEnviado = envio.ok;
   }
 
-  return { status: "success" };
+  return { status: "success", correoEnviado };
 }
 
 // ── Solicitar cita — paciente nuevo (crea paciente + solicitud + sesión) ──────
@@ -192,20 +197,25 @@ export async function solicitarCitaNueva(
   await setPortalCookie(nuevoPaciente.id);
 
   // 4. Correo de confirmación
+  let correoEnviado = false;
   if (email) {
-    try {
-      await enviarConfirmacionSolicitud({ to: email, nombre, fechaPreferida: fecha_preferida, sede });
-    } catch (err) {
-      console.error("[email] confirmación solicitud (paciente nuevo) falló:", err);
-    }
+    const envio = await enviarConfirmacionSolicitud({
+      to: email,
+      nombre,
+      fechaPreferida: fecha_preferida,
+      sede,
+    });
+    correoEnviado = envio.ok;
   }
 
-  return { status: "success" };
+  return { status: "success", correoEnviado };
 }
 
 // ── Confirmar solicitud (secretaria) ──────────────────────────────────────────
 
-export async function confirmarSolicitud(solicitudId: string): Promise<{ error?: string }> {
+export async function confirmarSolicitud(
+  solicitudId: string,
+): Promise<{ error?: string; aviso?: string }> {
   const supabase = await createClient();
 
   // Solo pasa de "pendiente" a "agendada": evita reenviar el correo en un doble clic.
@@ -220,17 +230,19 @@ export async function confirmarSolicitud(solicitudId: string): Promise<{ error?:
   if (error) return { error: "No se pudo confirmar la solicitud." };
   if (!solicitud) return {}; // ya estaba confirmada o cancelada
 
-  if (solicitud.email) {
-    try {
-      await enviarConfirmacionAprobacion({
-        to: solicitud.email,
-        nombre: solicitud.nombre,
-        fechaPreferida: solicitud.fecha_preferida,
-        sede: solicitud.sede,
-      });
-    } catch (err) {
-      console.error("[email] confirmación aprobación falló:", err);
-    }
+  if (!solicitud.email) {
+    return { aviso: "Cita confirmada. No hay correo registrado: avísale por teléfono." };
+  }
+
+  const envio = await enviarConfirmacionAprobacion({
+    to: solicitud.email,
+    nombre: solicitud.nombre,
+    fechaPreferida: solicitud.fecha_preferida,
+    sede: solicitud.sede,
+  });
+
+  if (!envio.ok) {
+    return { aviso: "Cita confirmada, pero el correo no salió. Avísale por teléfono." };
   }
 
   return {};
@@ -265,17 +277,13 @@ async function cancelar(
   if (!solicitud) return { error: "Esta solicitud ya no se puede cancelar." };
 
   if (solicitud.email) {
-    try {
-      await enviarConfirmacionCancelacion({
-        to: solicitud.email,
-        nombre: solicitud.nombre,
-        fechaPreferida: solicitud.fecha_preferida,
-        sede: solicitud.sede,
-        origen,
-      });
-    } catch (err) {
-      console.error("[email] confirmación cancelación falló:", err);
-    }
+    await enviarConfirmacionCancelacion({
+      to: solicitud.email,
+      nombre: solicitud.nombre,
+      fechaPreferida: solicitud.fecha_preferida,
+      sede: solicitud.sede,
+      origen,
+    });
   }
 
   return {};
@@ -326,8 +334,7 @@ export async function finalizarConsulta(consultaId: string): Promise<{ error?: s
 
   const doctora = Array.isArray(consulta.doctora) ? consulta.doctora[0] : consulta.doctora as { nombre_completo: string } | null;
 
-  try {
-    await enviarRecetaEmail({
+  const envio = await enviarRecetaEmail({
       to: paciente.email,
       pacienteNombre: `${paciente.primer_nombre} ${paciente.primer_apellido}`,
       fechaConsulta: consulta.fecha,
@@ -336,18 +343,20 @@ export async function finalizarConsulta(consultaId: string): Promise<{ error?: s
       diagnostico: consulta.diagnostico,
       tratamiento: consulta.tratamiento,
       notas: consulta.notas,
-      medicamentos: receta?.medicamentos ?? null,
-    });
+    medicamentos: receta?.medicamentos ?? null,
+  });
 
+  // Solo se marca como enviada si Resend la aceptó, para que un reintento
+  // posterior siga siendo posible.
+  if (envio.ok) {
     await supabase
       .from("consultas")
       .update({ receta_enviada: true, receta_enviada_en: new Date().toISOString() })
       .eq("id", consultaId);
-  } catch (err) {
-    console.error("Error enviando receta:", err);
+    return {};
   }
 
-  return {};
+  return { error: "La consulta quedó finalizada, pero la receta no se pudo enviar por correo." };
 }
 
 // ── Portal de pacientes (logout usado por /mis-citas) ─────────────────────────

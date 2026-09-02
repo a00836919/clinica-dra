@@ -1,15 +1,24 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { finalizarConsulta } from "@/app/actions";
 import { useRouter } from "next/navigation";
 
 export function FinalizarBtn({ consultaId, estado }: { consultaId: string; estado: string }) {
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
   if (estado === "atendida" || estado === "cancelada" || estado === "no_asistio") {
     return null;
+  }
+
+  if (error) {
+    return (
+      <p className="mt-1.5 text-[10px] leading-snug" style={{ color: "oklch(0.48 0.11 65)" }}>
+        {error}
+      </p>
+    );
   }
 
   return (
@@ -17,7 +26,8 @@ export function FinalizarBtn({ consultaId, estado }: { consultaId: string; estad
       disabled={pending}
       onClick={() =>
         startTransition(async () => {
-          await finalizarConsulta(consultaId);
+          const { error } = await finalizarConsulta(consultaId);
+          if (error) setError(error);
           router.refresh();
         })
       }

@@ -25,7 +25,7 @@ type Paso =
   | { nombre: "identidad" }
   | { nombre: "existente"; paciente: PacienteResumen }
   | { nombre: "nuevo" }
-  | { nombre: "listo" };
+  | { nombre: "listo"; correoEnviado: boolean };
 
 export function SolicitudForm() {
   const [paso, setPaso] = useState<Paso>({ nombre: "identidad" });
@@ -55,8 +55,10 @@ export function SolicitudForm() {
           ? await solicitarCitaExistente(formData)
           : await solicitarCitaNueva(dpi, fechaNacimiento, formData);
 
-      if (res.status === "error") return setError(res.message);
-      setPaso({ nombre: "listo" });
+      if (res.status !== "success") {
+        return setError(res.status === "error" ? res.message : "No pudimos enviar tu solicitud.");
+      }
+      setPaso({ nombre: "listo", correoEnviado: res.correoEnviado });
     });
   }
 
@@ -70,8 +72,9 @@ export function SolicitudForm() {
           ¡Solicitud recibida!
         </p>
         <p className="text-[14px] text-white/70 leading-relaxed mb-5">
-          Te enviamos un correo de confirmación. Te contactamos en menos de 24 horas
-          para confirmar tu cita, y recibirás un segundo correo cuando quede agendada.
+          {paso.correoEnviado
+            ? "Te enviamos un correo de confirmación. Te contactamos en menos de 24 horas para confirmar tu cita, y recibirás un segundo correo cuando quede agendada."
+            : "Te contactamos en menos de 24 horas para confirmar tu cita. Lo haremos por teléfono, así que mantente pendiente."}
         </p>
         <a
           href="/mis-citas"

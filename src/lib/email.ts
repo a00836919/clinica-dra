@@ -98,16 +98,70 @@ function shell({
 </html>`;
 }
 
-async function enviar({ to, subject, html }: { to: string; subject: string; html: string }) {
-  const { data, error } = await resend().emails.send({
-    from: from(),
-    to: [to],
-    subject,
-    html,
-  });
+/** Un envío nunca debe tumbar la operación de negocio, pero sí debe poder
+ *  reportarse: quien llama decide qué contarle al paciente o a la secretaria. */
+export type ResultadoEmail = { ok: true; id?: string } | { ok: false; motivo: string };
 
-  if (error) throw new Error(`Resend error: ${error.message}`);
-  return data;
+/** Oculta la parte local para no dejar correos completos en los logs. */
+function ofuscar(correo: string) {
+  const [local, dominio] = correo.split("@");
+  if (!dominio) return "***";
+  return `${local.slice(0, 1)}***@${dominio}`;
+}
+
+let avisoRemitente = false;
+
+async function enviar({
+  to,
+  subject,
+  html,
+}: {
+  to: string;
+  subject: string;
+  html: string;
+}): Promise<ResultadoEmail> {
+  const remitente = from();
+
+  // Causa más común de "el correo no llega": onboarding@resend.dev es el
+  // remitente compartido de pruebas de Resend y solo entrega al correo del
+  // dueño de la cuenta. A un paciente nunca le va a llegar.
+  if (remitente.includes("onboarding@resend.dev") && !avisoRemitente) {
+    avisoRemitente = true;
+    console.warn(
+      "[email] RESEND_FROM apunta a onboarding@resend.dev, el remitente de pruebas " +
+        "de Resend: solo entrega al correo del dueño de la cuenta, así que los " +
+        "pacientes no van a recibir nada. Verifica un dominio en Resend y cambia " +
+        "RESEND_FROM a una dirección de ese dominio.",
+    );
+  }
+
+  if (!process.env.RESEND_API_KEY) {
+    const motivo = "Falta RESEND_API_KEY";
+    console.error(`[email] "${subject}" no se envió: ${motivo}`);
+    return { ok: false, motivo };
+  }
+
+  try {
+    const { data, error } = await resend().emails.send({
+      from: remitente,
+      to: [to],
+      subject,
+      html,
+    });
+
+    if (error) {
+      const motivo = error.message || error.name || "Resend rechazó el envío";
+      console.error(`[email] "${subject}" → ${ofuscar(to)} rechazado por Resend:`, motivo);
+      return { ok: false, motivo };
+    }
+
+    console.log(`[email] "${subject}" → ${ofuscar(to)} enviado (id ${data?.id ?? "?"})`);
+    return { ok: true, id: data?.id };
+  } catch (err) {
+    const motivo = err instanceof Error ? err.message : String(err);
+    console.error(`[email] "${subject}" → ${ofuscar(to)} falló:`, motivo);
+    return { ok: false, motivo };
+  }
 }
 
 function nota(texto: string) {
@@ -143,7 +197,7 @@ export async function enviarConfirmacionSolicitud({ to, nombre, fechaPreferida, 
             correo cuando la clínica confirme tu hora. Recuerda traer tu DPI el día de la consulta.`)}`,
   });
 
-  await enviar({ to, subject: "Solicitud de cita recibida — Skin Clinic GT", html });
+  return enviar({ to, subject: "Solicitud de cita recibida — Skin Clinic GT", html });
 }
 
 // ── 2. Cita confirmada por la clínica ─────────────────────────────────────────
@@ -165,7 +219,7 @@ export async function enviarConfirmacionAprobacion({ to, nombre, fechaPreferida,
             de nacimiento, o contáctanos con anticipación.`)}`,
   });
 
-  await enviar({ to, subject: "Tu cita está confirmada — Skin Clinic GT", html });
+  return enviar({ to, subject: "Tu cita está confirmada — Skin Clinic GT", html });
 }
 
 // ── 3. Cita cancelada ─────────────────────────────────────────────────────────
@@ -203,7 +257,7 @@ export async function enviarConfirmacionCancelacion({
           ${nota(cuerpoNota)}`,
   });
 
-  await enviar({ to, subject: "Cita cancelada — Skin Clinic GT", html });
+  return enviar({ to, subject: "Cita cancelada — Skin Clinic GT", html });
 }
 
 // ── 4. Receta al finalizar consulta ───────────────────────────────────────────
