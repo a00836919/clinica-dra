@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { format, startOfDay, endOfDay } from "date-fns";
+import { format, parseISO, startOfDay, endOfDay } from "date-fns";
 import { es } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, Users, CheckCircle2, Clock } from "lucide-react";
@@ -169,7 +169,7 @@ export default async function DashboardPage() {
                     <span className="text-[11px] font-medium text-muted-foreground capitalize">{s.estado}</span>
                     {s.fecha_preferida && (
                       <span className="text-[11px] text-muted-foreground">
-                        · {format(new Date(s.fecha_preferida), "d MMM yyyy", { locale: es })}
+                        · {format(parseISO(s.fecha_preferida), "d MMM yyyy", { locale: es })}
                       </span>
                     )}
                     {s.sede && s.sede !== "Sin preferencia" && (

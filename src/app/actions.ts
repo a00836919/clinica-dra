@@ -11,6 +11,20 @@ import {
 import { setPortalCookie, clearPortalCookie, getPortalPatientId } from "@/lib/portal-session";
 import { redirect } from "next/navigation";
 
+
+/**
+ * Adjunta el error real de Postgres al mensaje.
+ *
+ * Se usa solo en acciones del dashboard, que son de personal: ahí ver "violates
+ * row-level security policy" ahorra horas. En los formularios públicos NO se
+ * usa, porque filtrarle detalles internos de la base a un paciente no aporta
+ * nada y sí expone estructura.
+ */
+function conDetalle(mensaje: string, error: { message?: string } | null) {
+  if (!error?.message) return mensaje;
+  return `${mensaje} — ${error.message}`;
+}
+
 // ── Verificar paciente por DPI + fecha de nacimiento ──────────────────────────
 
 export type PacienteResumen = {
@@ -385,7 +399,7 @@ export async function agendarSolicitud(
 
   if (citaError) {
     console.error("[agenda] no se pudo crear la consulta:", citaError);
-    return { error: "No se pudo crear la cita en la agenda." };
+    return { error: conDetalle("No se pudo crear la cita en la agenda.", citaError) };
   }
 
   await supabase.from("solicitudes_cita").update({ estado: "agendada" }).eq("id", solicitudId);
@@ -464,7 +478,10 @@ export async function guardarConsulta(
 
   if (updateError) {
     console.error("[consulta] no se pudo guardar:", updateError);
-    return { status: "error", message: "No se pudieron guardar los datos de la consulta." };
+    return {
+      status: "error",
+      message: conDetalle("No se pudieron guardar los datos de la consulta.", updateError),
+    };
   }
 
   // 2. Datos de facturación, que viven en el expediente del paciente
@@ -502,7 +519,10 @@ export async function guardarConsulta(
 
     if (recetaError) {
       console.error("[receta] no se pudo guardar:", recetaError);
-      return { status: "error", message: "Los datos se guardaron, pero la receta no." };
+      return {
+        status: "error",
+        message: conDetalle("Los datos se guardaron, pero la receta no.", recetaError),
+      };
     }
   }
 
@@ -652,7 +672,7 @@ export async function crearCita(datos: {
 
   if (error || !creada) {
     console.error("[agenda] no se pudo crear la cita:", error);
-    return { error: "No se pudo crear la cita." };
+    return { error: conDetalle("No se pudo crear la cita.", error) };
   }
 
   if (!datos.avisarPorCorreo) return { consultaId: creada.id };
@@ -698,7 +718,7 @@ export async function reprogramarConsulta(
 
   if (error || !consulta) {
     console.error("[agenda] no se pudo reprogramar:", error);
-    return { error: "No se pudo mover la cita." };
+    return { error: conDetalle("No se pudo mover la cita.", error) };
   }
 
   const paciente = (Array.isArray(consulta.paciente) ? consulta.paciente[0] : consulta.paciente) as {
@@ -740,7 +760,7 @@ export async function cambiarEstadoConsulta(
 
   if (error) {
     console.error("[agenda] no se pudo cambiar el estado:", error);
-    return { error: "No se pudo cambiar el estado de la cita." };
+    return { error: conDetalle("No se pudo cambiar el estado de la cita.", error) };
   }
 
   return {};
