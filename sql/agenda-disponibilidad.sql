@@ -22,8 +22,12 @@ comment on column public.consultas.origen_id is
   'ID de la cita en el sistema anterior, para no importarla dos veces.';
 
 -- Evita duplicados si la importación se corre más de una vez.
+-- No es parcial a propósito: PostgREST no puede inferir un índice parcial para
+-- ON CONFLICT. En Postgres varios NULL no chocan entre sí, así que un índice
+-- único normal permite igual las citas sin origen_id.
+drop index if exists public.consultas_origen_id_key;
 create unique index if not exists consultas_origen_id_key
-  on public.consultas (origen_id) where origen_id is not null;
+  on public.consultas (origen_id);
 
 -- 2. Hora preferida en la solicitud ──────────────────────────────────────────
 -- El formulario público ahora deja elegir una franja concreta, no solo el día.

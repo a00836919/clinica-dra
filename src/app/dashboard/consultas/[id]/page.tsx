@@ -17,6 +17,7 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
     .select(
       `id, fecha, motivo, estado, sede, diagnostico, tratamiento, notas, notas_ampliadas,
        proxima_control, receta_enviada, receta_enviada_en, doctora_nombre,
+       paciente_nombre, paciente_telefono, origen,
        paciente:pacientes!consultas_paciente_id_fkey(
          id, primer_nombre, primer_apellido, telefono, email, nit, direccion,
          fecha_nacimiento, numero_identificacion, condiciones_medicas, medicamentos_actuales
@@ -46,7 +47,9 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
   const medicamentos = (receta?.medicamentos ?? []) as Medicamento[];
   const est = estadoConsulta(consulta.estado);
   const cerrada = ESTADOS_CERRADOS.includes(consulta.estado);
-  const nombre = paciente ? `${paciente.primer_nombre} ${paciente.primer_apellido}` : "Paciente";
+  const nombre = paciente
+    ? `${paciente.primer_nombre} ${paciente.primer_apellido}`
+    : (consulta.paciente_nombre ?? "Paciente");
 
   return (
     <div className="mx-auto max-w-4xl p-6">

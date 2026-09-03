@@ -28,7 +28,14 @@ type ConsultaAgenda = {
   estado: string;
   sede: string;
   paciente: { primer_nombre: string; primer_apellido: string } | null;
+  /** Las citas importadas no tienen expediente: el nombre viene suelto. */
+  paciente_nombre: string | null;
 };
+
+function nombrePaciente(c: ConsultaAgenda) {
+  if (c.paciente) return `${c.paciente.primer_nombre} ${c.paciente.primer_apellido}`;
+  return c.paciente_nombre ?? "Paciente";
+}
 
 /** El ancla de la vista viaja en la URL, así navegar no necesita JavaScript. */
 function leerParams(params: { vista?: string; ref?: string }) {
@@ -68,7 +75,7 @@ export default async function AgendaPage({
   const { data } = await supabase
     .from("consultas")
     .select(
-      `id, fecha, motivo, estado, sede,
+      `id, fecha, motivo, estado, sede, paciente_nombre,
        paciente:pacientes!consultas_paciente_id_fkey(primer_nombre, primer_apellido)`,
     )
     .gte("fecha", desde.toISOString())
@@ -290,9 +297,7 @@ function VistaMes({
 
                 {visibles.map((c) => {
                   const est = estadoConsulta(c.estado);
-                  const nombre = c.paciente
-                    ? `${c.paciente.primer_nombre} ${c.paciente.primer_apellido}`
-                    : "Paciente";
+                  const nombre = nombrePaciente(c);
                   return (
                     <Link
                       key={c.id}
@@ -336,9 +341,7 @@ function VistaMes({
 
 function TarjetaCita({ consulta }: { consulta: ConsultaAgenda }) {
   const est = estadoConsulta(consulta.estado);
-  const nombre = consulta.paciente
-    ? `${consulta.paciente.primer_nombre} ${consulta.paciente.primer_apellido}`
-    : "Paciente";
+  const nombre = nombrePaciente(consulta);
   const cerrada = ESTADOS_CERRADOS.includes(consulta.estado);
 
   return (

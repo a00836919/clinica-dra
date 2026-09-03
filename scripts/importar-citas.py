@@ -17,6 +17,11 @@ Sin --aplicar solo muestra qué haría.
 import sys, json, urllib.request, datetime, collections, re
 from pathlib import Path
 
+# Guatemala es UTC-6 todo el año, sin horario de verano. El Excel trae horas
+# locales sin zona; sin esto, Postgres las interpreta como UTC y toda la agenda
+# queda corrida seis horas.
+GT = datetime.timezone(datetime.timedelta(hours=-6))
+
 RAIZ = Path(__file__).resolve().parent.parent
 
 def env(clave):
@@ -105,7 +110,7 @@ def main():
             "doctora_id": doctora["id"],
             "doctora_nombre": doctora.get("nombre_agenda") or doctora["nombre_completo"],
             "sede": "Integra",
-            "fecha": inicio.isoformat(),
+            "fecha": inicio.replace(tzinfo=GT).isoformat(),
             "motivo": motivo,
             "estado": estado,
             "origen": "importado",
@@ -122,17 +127,51 @@ def main():
     rango = sorted(c["fecha"] for c in citas)
     print(f"rango:    {rango[0][:10]} → {rango[-1][:10]}")
 
+    # La idempotencia se resuelve aquí y no con ON CONFLICT: el índice único de
+    # origen_id es parcial (solo donde no es nulo) y PostgREST no puede inferir
+    # un índice parcial. Preguntar antes es igual de seguro y más explícito.
+    ya = rest("GET", "consultas?select=id,origen_id,fecha&origen=eq.importado&limit=5000") or []
+    existentes = {x["origen_id"]: x for x in ya if x.get("origen_id")}
+    nuevas = [c for c in citas if c["origen_id"] and c["origen_id"] not in existentes]
+
+    # Reconciliación: si una cita ya cargada tiene otra hora que la del archivo,
+    # se corrige. Así una importación con la zona horaria mal se puede reparar
+    # sin borrar nada.
+    def mismo_instante(a, b):
+        return datetime.datetime.fromisoformat(a) == datetime.datetime.fromisoformat(b)
+
+    desfasadas = [
+        (existentes[c["origen_id"]]["id"], c["fecha"])
+        for c in citas
+        if c["origen_id"] in existentes
+        and not mismo_instante(existentes[c["origen_id"]]["fecha"], c["fecha"])
+    ]
+
+    print(f"ya estaban:   {len(existentes)}")
+    print(f"por insertar: {len(nuevas)}")
+    print(f"por corregir: {len(desfasadas)}")
+
     if not aplicar:
         print("\n(simulación — agrega --aplicar para escribir)")
         return
 
+    if desfasadas:
+        print(f"\ncorrigiendo la hora de {len(desfasadas)} citas…")
+        for n, (cid, fecha) in enumerate(desfasadas, 1):
+            rest("PATCH", f"consultas?id=eq.{cid}", {"fecha": fecha}, prefer="return=minimal")
+            if n % 50 == 0 or n == len(desfasadas):
+                print(f"  {n}/{len(desfasadas)}")
+
+    if not nuevas:
+        print("\nsin citas nuevas que insertar.")
+        return
+
     insertadas = 0
-    for i in range(0, len(citas), 100):
-        lote = citas[i:i + 100]
-        rest("POST", "consultas?on_conflict=origen_id", lote,
-             prefer="resolution=ignore-duplicates,return=minimal")
+    for i in range(0, len(nuevas), 100):
+        lote = nuevas[i:i + 100]
+        rest("POST", "consultas", lote, prefer="return=minimal")
         insertadas += len(lote)
-        print(f"  lote {i//100 + 1}: {insertadas}/{len(citas)}")
+        print(f"  lote {i//100 + 1}: {insertadas}/{len(nuevas)}")
 
     total = rest("GET", "consultas?select=id&origen=eq.importado&limit=1000")
     print(f"\nlisto. citas importadas en la base: {len(total)}")

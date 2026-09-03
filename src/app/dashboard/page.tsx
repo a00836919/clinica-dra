@@ -57,7 +57,7 @@ export default async function DashboardPage() {
   const { data: consultas } = await supabase
     .from("consultas")
     .select(
-      `id, fecha, motivo, estado, sede, doctora_nombre,
+      `id, fecha, motivo, estado, sede, doctora_nombre, paciente_nombre, paciente_telefono,
        paciente:pacientes!consultas_paciente_id_fkey(primer_nombre, primer_apellido, telefono)`
     )
     .gte("fecha", startOfDay(hoy).toISOString())
@@ -257,7 +257,7 @@ export default async function DashboardPage() {
                     <p className="text-sm font-medium text-foreground truncate">
                       {paciente
                         ? `${paciente.primer_nombre} ${paciente.primer_apellido}`
-                        : "Paciente desconocido"}
+                        : (c.paciente_nombre ?? "Paciente desconocido")}
                     </p>
                     <p className="text-xs text-muted-foreground truncate mt-0.5">
                       {c.motivo ?? "Sin motivo especificado"} · {c.sede}
