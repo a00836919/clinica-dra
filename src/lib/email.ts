@@ -230,7 +230,13 @@ type CitaEmail = {
 
 // ── 1. Confirmación de solicitud recibida (al enviar el formulario) ────────────
 
-export async function enviarConfirmacionSolicitud({ to, nombre, fechaPreferida, sede }: CitaEmail) {
+export async function enviarConfirmacionSolicitud({
+  to,
+  nombre,
+  fechaPreferida,
+  hora,
+  sede,
+}: CitaEmail) {
   const html = shell({
     titulo: "Solicitud recibida",
     cuerpo: `
@@ -238,7 +244,8 @@ export async function enviarConfirmacionSolicitud({ to, nombre, fechaPreferida, 
             Te contactamos en menos de <strong>24 horas</strong> para confirmar tu hora.`)}
 
           ${datosBox([
-            ["Fecha aproximada", fechaLarga(fechaPreferida)],
+            [hora ? "Día solicitado" : "Fecha aproximada", fechaLarga(fechaPreferida)],
+            ["Hora solicitada", hora],
             ["Sede", sede && sede !== "Sin preferencia" ? sede : null],
           ])}
 

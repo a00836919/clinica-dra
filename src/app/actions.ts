@@ -10,6 +10,8 @@ import {
 } from "@/lib/email";
 import { setPortalCookie, clearPortalCookie, getPortalPatientId } from "@/lib/portal-session";
 import { redirect } from "next/navigation";
+import { parseISO } from "date-fns";
+import { calcularFranjas, esDiaAbierto, HORARIO } from "@/lib/disponibilidad";
 
 
 /**
@@ -87,6 +89,7 @@ export async function solicitarCitaExistente(formData: FormData): Promise<Solici
   const motivo = formData.get("motivo")?.toString().trim() || null;
   const fechaStr = formData.get("fecha_preferida")?.toString();
   const fecha_preferida = fechaStr ? fechaStr : null;
+  const hora_preferida = formData.get("hora_preferida")?.toString() || null;
 
   const supabase = createAdminClient();
   if (!supabase) return { status: "error", message: ERROR_CONFIG };
@@ -112,6 +115,7 @@ export async function solicitarCitaExistente(formData: FormData): Promise<Solici
     sede,
     motivo,
     fecha_preferida,
+    hora_preferida,
     paciente_id: patientId,
   });
 
@@ -126,6 +130,7 @@ export async function solicitarCitaExistente(formData: FormData): Promise<Solici
       to: paciente.email,
       nombre,
       fechaPreferida: fecha_preferida,
+      hora: hora_preferida,
       sede,
     });
     correoEnviado = envio.ok;
@@ -149,6 +154,7 @@ export async function solicitarCitaNueva(
   const motivo = formData.get("motivo")?.toString().trim() || null;
   const fechaStr = formData.get("fecha_preferida")?.toString();
   const fecha_preferida = fechaStr ? fechaStr : null;
+  const hora_preferida = formData.get("hora_preferida")?.toString() || null;
 
   if (!primer_nombre || !primer_apellido || !telefono) {
     return { status: "error", message: "Nombre, apellido y teléfono son obligatorios." };
@@ -199,6 +205,7 @@ export async function solicitarCitaNueva(
     sede,
     motivo,
     fecha_preferida,
+    hora_preferida,
     paciente_id: nuevoPaciente.id,
   });
 
@@ -217,6 +224,7 @@ export async function solicitarCitaNueva(
       to: email,
       nombre,
       fechaPreferida: fecha_preferida,
+      hora: hora_preferida,
       sede,
     });
     correoEnviado = envio.ok;
@@ -763,5 +771,117 @@ export async function cambiarEstadoConsulta(
     return { error: conDetalle("No se pudo cambiar el estado de la cita.", error) };
   }
 
+  return {};
+}
+
+// ── Disponibilidad pública ──────────────────────────────────────────────────
+
+/**
+ * Franjas libres de un día. La consulta la hace el cliente de servicio porque
+ * quien pregunta es un visitante anónimo; solo se devuelven horas, nunca datos
+ * de las citas que las ocupan.
+ */
+export async function franjasDisponibles(
+  fechaISO: string,
+  sede?: string,
+): Promise<{ hora: string; disponible: boolean }[]> {
+  const dia = parseISO(fechaISO);
+  if (Number.isNaN(dia.getTime()) || !esDiaAbierto(dia)) return [];
+
+  const supabase = createAdminClient();
+  if (!supabase) return [];
+
+  const inicioDia = new Date(dia);
+  inicioDia.setHours(0, 0, 0, 0);
+  const finDia = new Date(dia);
+  finDia.setHours(23, 59, 59, 999);
+
+  const [{ data: citas }, { data: bloqueos }] = await Promise.all([
+    supabase
+      .from("consultas")
+      .select("fecha, sede")
+      .gte("fecha", inicioDia.toISOString())
+      .lte("fecha", finDia.toISOString())
+      .not("estado", "in", "(cancelada,no_asistio)"),
+    supabase
+      .from("bloqueos_agenda")
+      .select("desde, hasta, sede")
+      .lt("desde", finDia.toISOString())
+      .gt("hasta", inicioDia.toISOString()),
+  ]);
+
+  const mismaSede = (s: string | null) => !sede || !s || s === sede;
+
+  const ocupaciones = [
+    // Una cita ocupa su franja; no guardamos duración, así que se asume la
+    // franja estándar, que es lo que usa la agenda real.
+    ...(citas ?? [])
+      .filter((c) => mismaSede(c.sede))
+      .map((c) => {
+        const desde = new Date(c.fecha);
+        return { desde, hasta: new Date(desde.getTime() + HORARIO.minutosPorFranja * 60_000) };
+      }),
+    ...(bloqueos ?? [])
+      .filter((b) => mismaSede(b.sede))
+      .map((b) => ({ desde: new Date(b.desde), hasta: new Date(b.hasta) })),
+  ];
+
+  return calcularFranjas({ dia, ocupaciones });
+}
+
+// ── Bloqueos de agenda (personal) ───────────────────────────────────────────
+
+export type Bloqueo = {
+  id: string;
+  desde: string;
+  hasta: string;
+  sede: string | null;
+  motivo: string | null;
+  doctora_id: string | null;
+};
+
+export async function crearBloqueo(datos: {
+  desde: string;
+  hasta: string;
+  sede: string | null;
+  doctoraId: string | null;
+  motivo: string;
+}): Promise<{ error?: string }> {
+  const sesion = await sesionStaff();
+  if (!sesion) return { error: "Tu sesión expiró. Vuelve a entrar." };
+
+  const desde = new Date(datos.desde);
+  const hasta = new Date(datos.hasta);
+  if (Number.isNaN(desde.getTime()) || Number.isNaN(hasta.getTime())) {
+    return { error: "Las fechas no son válidas." };
+  }
+  if (hasta <= desde) return { error: "La fecha de fin debe ser posterior a la de inicio." };
+
+  const { error } = await sesion.supabase.from("bloqueos_agenda").insert({
+    desde: desde.toISOString(),
+    hasta: hasta.toISOString(),
+    sede: datos.sede,
+    doctora_id: datos.doctoraId,
+    motivo: datos.motivo.trim() || null,
+    creado_por: sesion.user.id,
+  });
+
+  if (error) {
+    console.error("[bloqueos] no se pudo crear:", error);
+    return { error: conDetalle("No se pudo crear el bloqueo.", error) };
+  }
+
+  return {};
+}
+
+export async function eliminarBloqueo(id: string): Promise<{ error?: string }> {
+  const sesion = await sesionStaff();
+  if (!sesion) return { error: "Tu sesión expiró. Vuelve a entrar." };
+
+  const { error } = await sesion.supabase.from("bloqueos_agenda").delete().eq("id", id);
+  if (error) {
+    console.error("[bloqueos] no se pudo eliminar:", error);
+    return { error: conDetalle("No se pudo eliminar el bloqueo.", error) };
+  }
   return {};
 }

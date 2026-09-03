@@ -8,6 +8,7 @@ import {
   type PacienteResumen,
 } from "@/app/actions";
 import { SEDES } from "@/lib/sedes";
+import { SelectorFranja } from "@/components/landing/selector-franja";
 
 const INPUT =
   "land-input text-white placeholder:text-white/30 border-white/25 focus:border-white/80";
@@ -31,6 +32,8 @@ export function SolicitudForm() {
   const [dpi, setDpi] = useState("");
   const [fechaNacimiento, setFechaNacimiento] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [sede, setSede] = useState<string>(SEDES[0]);
+  const [franja, setFranja] = useState<{ fecha: string; hora: string } | null>(null);
   const [pending, start] = useTransition();
 
   function verificar(e: React.FormEvent<HTMLFormElement>) {
@@ -185,16 +188,18 @@ export function SolicitudForm() {
         </>
       )}
 
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 gap-5">
         <div className="flex flex-col gap-1.5">
           <label className={LABEL}>Sede</label>
           <select
             name="sede"
+            value={sede}
+            onChange={(e) => {
+              setSede(e.target.value);
+              setFranja(null);
+            }}
             className={`${INPUT} bg-transparent appearance-none cursor-pointer`}
           >
-            <option value="Sin preferencia" className="text-foreground bg-white">
-              Sin preferencia
-            </option>
             {SEDES.map((s) => (
               <option key={s} value={s} className="text-foreground bg-white">
                 {s}
@@ -202,14 +207,10 @@ export function SolicitudForm() {
             ))}
           </select>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <label className={LABEL}>Fecha aproximada</label>
-          <input
-            name="fecha_preferida"
-            type="date"
-            className={`${INPUT} bg-transparent [color-scheme:dark]`}
-          />
-        </div>
+      </div>
+
+      <div className="rounded-xl border border-white/15 bg-white/[0.06] p-4">
+        <SelectorFranja sede={sede} onCambio={setFranja} />
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -221,6 +222,12 @@ export function SolicitudForm() {
           className={`${INPUT} resize-none`}
         />
       </div>
+
+      {!franja && (
+        <p className="text-[11px] text-white/50">
+          Si no eliges día y hora, te contactamos para acordarlos.
+        </p>
+      )}
 
       {error && <p className="text-[13px] text-white bg-white/10 rounded-lg px-4 py-3">{error}</p>}
 
