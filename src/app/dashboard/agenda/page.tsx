@@ -17,6 +17,7 @@ import {
 } from "date-fns";
 import { es } from "date-fns/locale";
 import { estadoConsulta, ESTADOS_CERRADOS } from "@/lib/estados";
+import { NuevaCitaForm } from "@/components/dashboard/nueva-cita-form";
 
 type Vista = "semana" | "mes";
 
@@ -73,6 +74,18 @@ export default async function AgendaPage({
     .gte("fecha", desde.toISOString())
     .lte("fecha", addDays(hasta, 1).toISOString())
     .order("fecha", { ascending: true });
+
+  const { data: staff } = await supabase
+    .from("staff")
+    .select("id, nombre_completo, nombre_agenda")
+    .eq("es_doctora", true)
+    .eq("activo", true)
+    .order("nombre_completo");
+
+  const doctoras = (staff ?? []).map((d) => ({
+    id: d.id,
+    nombre: d.nombre_agenda ?? d.nombre_completo,
+  }));
 
   const consultas: ConsultaAgenda[] = (data ?? []).map((c) => ({
     ...c,
@@ -145,6 +158,10 @@ export default async function AgendaPage({
             </Link>
           </div>
         </div>
+      </div>
+
+      <div className="mb-5">
+        <NuevaCitaForm doctoras={doctoras} />
       </div>
 
       {vista === "semana" ? (

@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { estadoConsulta, ESTADOS_CERRADOS } from "@/lib/estados";
 import { CierreConsultaForm } from "@/components/dashboard/cierre-consulta-form";
+import { ControlesConsulta } from "@/components/dashboard/controles-consulta";
 import type { Medicamento } from "@/app/actions";
 
 export default async function ConsultaPage({ params }: { params: Promise<{ id: string }> }) {
@@ -94,6 +95,10 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
             </Link>
           )}
         </div>
+      </div>
+
+      <div className="mb-6">
+        <ControlesConsulta consultaId={consulta.id} estado={consulta.estado} fechaISO={consulta.fecha} />
       </div>
 
       {/* Contexto del paciente: lo que la doctora necesita a la vista */}

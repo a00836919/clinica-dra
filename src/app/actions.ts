@@ -544,3 +544,204 @@ export async function guardarConsulta(
 
   return { status: "cerrado", correoEnviado: envio.ok };
 }
+
+// ── Administración de citas desde el dashboard ──────────────────────────────
+
+/** Toda acción del dashboard exige sesión de personal. */
+async function sesionStaff() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user ? { supabase, user } : null;
+}
+
+export type PacienteBusqueda = {
+  id: string;
+  nombre: string;
+  numero_identificacion: string;
+  telefono: string;
+  email: string | null;
+};
+
+/** Busca por nombre, apellido o DPI para agendar sin pasar por la web. */
+export async function buscarPacientes(query: string): Promise<PacienteBusqueda[]> {
+  const sesion = await sesionStaff();
+  if (!sesion) return [];
+
+  const q = query.trim();
+  if (q.length < 2) return [];
+
+  // Se escapan las comas para que no rompan la sintaxis de `or` de PostgREST.
+  const patron = `%${q.replace(/[,()]/g, "")}%`;
+
+  const { data, error } = await sesion.supabase
+    .from("pacientes")
+    .select("id, primer_nombre, primer_apellido, numero_identificacion, telefono, email")
+    .or(
+      `primer_nombre.ilike.${patron},primer_apellido.ilike.${patron},numero_identificacion.ilike.${patron}`,
+    )
+    .order("primer_apellido")
+    .limit(10);
+
+  if (error) {
+    console.error("[pacientes] búsqueda falló:", error);
+    return [];
+  }
+
+  return (data ?? []).map((p) => ({
+    id: p.id,
+    nombre: `${p.primer_nombre} ${p.primer_apellido}`,
+    numero_identificacion: p.numero_identificacion,
+    telefono: p.telefono,
+    email: p.email,
+  }));
+}
+
+/**
+ * Crea una cita sin solicitud previa: la clínica agenda por teléfono o en
+ * mostrador, que hasta ahora no tenía ninguna vía en la app.
+ */
+export async function crearCita(datos: {
+  pacienteId: string;
+  fecha: string;
+  hora: string;
+  sede: string;
+  doctoraId: string;
+  motivo?: string;
+  avisarPorCorreo: boolean;
+}): Promise<{ error?: string; aviso?: string; consultaId?: string }> {
+  const sesion = await sesionStaff();
+  if (!sesion) return { error: "Tu sesión expiró. Vuelve a entrar." };
+  const { supabase } = sesion;
+
+  if (!datos.pacienteId) return { error: "Elige al paciente." };
+  if (!datos.fecha || !datos.hora) return { error: "Falta la fecha o la hora." };
+  if (!datos.doctoraId) return { error: "Elige a la doctora que atiende." };
+
+  const cuando = new Date(`${datos.fecha}T${datos.hora}`);
+  if (Number.isNaN(cuando.getTime())) return { error: "La fecha o la hora no son válidas." };
+
+  const { data: paciente } = await supabase
+    .from("pacientes")
+    .select("primer_nombre, primer_apellido, email")
+    .eq("id", datos.pacienteId)
+    .maybeSingle();
+
+  if (!paciente) return { error: "No encontramos a ese paciente." };
+
+  const { data: doctora } = await supabase
+    .from("staff")
+    .select("nombre_completo, nombre_agenda")
+    .eq("id", datos.doctoraId)
+    .maybeSingle();
+
+  const { data: creada, error } = await supabase
+    .from("consultas")
+    .insert({
+      paciente_id: datos.pacienteId,
+      doctora_id: datos.doctoraId,
+      doctora_nombre: doctora?.nombre_agenda ?? doctora?.nombre_completo ?? null,
+      sede: datos.sede,
+      fecha: cuando.toISOString(),
+      motivo: datos.motivo?.trim() || null,
+      estado: "agendada",
+    })
+    .select("id")
+    .single();
+
+  if (error || !creada) {
+    console.error("[agenda] no se pudo crear la cita:", error);
+    return { error: "No se pudo crear la cita." };
+  }
+
+  if (!datos.avisarPorCorreo) return { consultaId: creada.id };
+  if (!paciente.email) {
+    return { consultaId: creada.id, aviso: "Cita creada. El paciente no tiene correo registrado." };
+  }
+
+  const envio = await enviarConfirmacionAprobacion({
+    to: paciente.email,
+    nombre: `${paciente.primer_nombre} ${paciente.primer_apellido}`,
+    fechaPreferida: cuando.toISOString(),
+    hora: datos.hora,
+    sede: datos.sede,
+  });
+
+  if (!envio.ok) {
+    return { consultaId: creada.id, aviso: "Cita creada, pero el correo no salió." };
+  }
+
+  return { consultaId: creada.id };
+}
+
+/** Mueve una cita de fecha u hora y, si se pide, vuelve a avisar al paciente. */
+export async function reprogramarConsulta(
+  consultaId: string,
+  datos: { fecha: string; hora: string; avisarPorCorreo: boolean },
+): Promise<{ error?: string; aviso?: string }> {
+  const sesion = await sesionStaff();
+  if (!sesion) return { error: "Tu sesión expiró. Vuelve a entrar." };
+  const { supabase } = sesion;
+
+  const cuando = new Date(`${datos.fecha}T${datos.hora}`);
+  if (Number.isNaN(cuando.getTime())) return { error: "La fecha o la hora no son válidas." };
+
+  const { data: consulta, error } = await supabase
+    .from("consultas")
+    .update({ fecha: cuando.toISOString(), estado: "agendada" })
+    .eq("id", consultaId)
+    .select(
+      `sede, paciente:pacientes!consultas_paciente_id_fkey(primer_nombre, primer_apellido, email)`,
+    )
+    .maybeSingle();
+
+  if (error || !consulta) {
+    console.error("[agenda] no se pudo reprogramar:", error);
+    return { error: "No se pudo mover la cita." };
+  }
+
+  const paciente = (Array.isArray(consulta.paciente) ? consulta.paciente[0] : consulta.paciente) as {
+    primer_nombre: string;
+    primer_apellido: string;
+    email: string | null;
+  } | null;
+
+  if (!datos.avisarPorCorreo) return {};
+  if (!paciente?.email) return { aviso: "Cita movida. El paciente no tiene correo registrado." };
+
+  const envio = await enviarConfirmacionAprobacion({
+    to: paciente.email,
+    nombre: `${paciente.primer_nombre} ${paciente.primer_apellido}`,
+    fechaPreferida: cuando.toISOString(),
+    hora: datos.hora,
+    sede: consulta.sede,
+  });
+
+  if (!envio.ok) return { aviso: "Cita movida, pero el correo no salió." };
+  return {};
+}
+
+const ESTADOS_VALIDOS = ["agendada", "confirmada", "atendida", "cancelada", "no_asistio"];
+
+/** Marcar no asistió, cancelar, o devolver a agendada. */
+export async function cambiarEstadoConsulta(
+  consultaId: string,
+  estado: string,
+): Promise<{ error?: string }> {
+  const sesion = await sesionStaff();
+  if (!sesion) return { error: "Tu sesión expiró. Vuelve a entrar." };
+  if (!ESTADOS_VALIDOS.includes(estado)) return { error: "Estado no válido." };
+
+  const { error } = await sesion.supabase
+    .from("consultas")
+    .update({ estado })
+    .eq("id", consultaId);
+
+  if (error) {
+    console.error("[agenda] no se pudo cambiar el estado:", error);
+    return { error: "No se pudo cambiar el estado de la cita." };
+  }
+
+  return {};
+}
