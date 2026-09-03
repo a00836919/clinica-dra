@@ -223,6 +223,8 @@ type CitaEmail = {
   to: string;
   nombre: string;
   fechaPreferida?: string | null;
+  /** Hora "HH:mm" de la cita ya agendada. Una solicitud todavía no la tiene. */
+  hora?: string | null;
   sede?: string | null;
 };
 
@@ -249,7 +251,13 @@ export async function enviarConfirmacionSolicitud({ to, nombre, fechaPreferida, 
 
 // ── 2. Cita confirmada por la clínica ─────────────────────────────────────────
 
-export async function enviarConfirmacionAprobacion({ to, nombre, fechaPreferida, sede }: CitaEmail) {
+export async function enviarConfirmacionAprobacion({
+  to,
+  nombre,
+  fechaPreferida,
+  hora,
+  sede,
+}: CitaEmail) {
   const html = shell({
     titulo: "¡Tu cita está confirmada!",
     cuerpo: `
@@ -258,6 +266,7 @@ export async function enviarConfirmacionAprobacion({ to, nombre, fechaPreferida,
 
           ${datosBox([
             ["Fecha", fechaLarga(fechaPreferida)],
+            ["Hora", hora],
             ["Sede", sede && sede !== "Sin preferencia" ? sede : null],
           ])}
 

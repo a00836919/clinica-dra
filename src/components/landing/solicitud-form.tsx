@@ -7,8 +7,7 @@ import {
   solicitarCitaNueva,
   type PacienteResumen,
 } from "@/app/actions";
-
-const SEDES = ["Integra", "Decorísima", "Galerías Tiffany"];
+import { SEDES } from "@/lib/sedes";
 
 const INPUT =
   "land-input text-white placeholder:text-white/30 border-white/25 focus:border-white/80";

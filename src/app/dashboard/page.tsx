@@ -1,10 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { format, startOfDay, endOfDay } from "date-fns";
 import { es } from "date-fns/locale";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, Users, CheckCircle2, Clock } from "lucide-react";
-import { ConfirmarSolicitudBtn } from "@/components/dashboard/confirmar-solicitud-btn";
+import { AgendarSolicitudForm } from "@/components/dashboard/agendar-solicitud-form";
 import { CancelarSolicitudBtn } from "@/components/portal/cancelar-btn";
 
 const ESTADO_CONFIG: Record<
@@ -64,6 +63,19 @@ export default async function DashboardPage() {
     .gte("fecha", startOfDay(hoy).toISOString())
     .lte("fecha", endOfDay(hoy).toISOString())
     .order("fecha", { ascending: true });
+
+  // Doctoras activas para el selector al agendar una solicitud
+  const { data: staff } = await supabase
+    .from("staff")
+    .select("id, nombre_completo, nombre_agenda")
+    .eq("es_doctora", true)
+    .eq("activo", true)
+    .order("nombre_completo");
+
+  const doctoras = (staff ?? []).map((d) => ({
+    id: d.id,
+    nombre: d.nombre_agenda ?? d.nombre_completo,
+  }));
 
   const { count: totalPacientes } = await supabase
     .from("pacientes")
@@ -171,7 +183,14 @@ export default async function DashboardPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {s.estado === "pendiente" && <ConfirmarSolicitudBtn solicitudId={s.id} />}
+                  {s.estado === "pendiente" && (
+                    <AgendarSolicitudForm
+                      solicitudId={s.id}
+                      fechaSugerida={s.fecha_preferida}
+                      sedeSugerida={s.sede}
+                      doctoras={doctoras}
+                    />
+                  )}
                   <CancelarSolicitudBtn solicitudId={s.id} scope="clinica" />
                 </div>
               </div>

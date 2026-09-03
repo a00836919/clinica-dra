@@ -4,8 +4,7 @@ import { Hero } from "@/components/landing/hero";
 import { Equipo } from "@/components/landing/equipo";
 import { Tecnologia } from "@/components/landing/tecnologia";
 import { CinematicMotion } from "@/components/motion/cinematic-motion";
-
-const SEDES = ["Integra", "Decorísima", "Galerías Tiffany"];
+import { SEDES } from "@/lib/sedes";
 
 export default function LandingPage() {
   return (

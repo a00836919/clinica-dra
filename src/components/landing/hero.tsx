@@ -1,7 +1,6 @@
 import Image from "next/image";
 import recepcion from "@/assets/fotos/recepcion.jpg";
-
-const SEDES = ["Integra", "Decorísima", "Galerías Tiffany"];
+import { SEDES } from "@/lib/sedes";
 
 /**
  * Escenario fotográfico de apertura: la foto de la recepción ocupa el viewport,

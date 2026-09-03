@@ -211,43 +211,6 @@ export async function solicitarCitaNueva(
   return { status: "success", correoEnviado };
 }
 
-// ── Confirmar solicitud (secretaria) ──────────────────────────────────────────
-
-export async function confirmarSolicitud(
-  solicitudId: string,
-): Promise<{ error?: string; aviso?: string }> {
-  const supabase = await createClient();
-
-  // Solo pasa de "pendiente" a "agendada": evita reenviar el correo en un doble clic.
-  const { data: solicitud, error } = await supabase
-    .from("solicitudes_cita")
-    .update({ estado: "agendada" })
-    .eq("id", solicitudId)
-    .eq("estado", "pendiente")
-    .select("nombre, email, fecha_preferida, sede")
-    .maybeSingle();
-
-  if (error) return { error: "No se pudo confirmar la solicitud." };
-  if (!solicitud) return {}; // ya estaba confirmada o cancelada
-
-  if (!solicitud.email) {
-    return { aviso: "Cita confirmada. No hay correo registrado: avísale por teléfono." };
-  }
-
-  const envio = await enviarConfirmacionAprobacion({
-    to: solicitud.email,
-    nombre: solicitud.nombre,
-    fechaPreferida: solicitud.fecha_preferida,
-    sede: solicitud.sede,
-  });
-
-  if (!envio.ok) {
-    return { aviso: "Cita confirmada, pero el correo no salió. Avísale por teléfono." };
-  }
-
-  return {};
-}
-
 // ── Cancelar solicitud ────────────────────────────────────────────────────────
 
 async function cancelar(
@@ -364,4 +327,220 @@ export async function finalizarConsulta(consultaId: string): Promise<{ error?: s
 export async function logoutPortal() {
   await clearPortalCookie();
   redirect("/");
+}
+
+// ── Agendar una solicitud: crea la cita real en el calendario ────────────────
+
+/**
+ * Confirmar una solicitud no basta para que la cita exista: hasta ahora solo
+ * cambiaba el estado de la solicitud y la agenda nunca la veía. Esto crea la
+ * consulta con fecha, hora, sede y doctora, y recién entonces avisa al paciente.
+ */
+export async function agendarSolicitud(
+  solicitudId: string,
+  datos: { fecha: string; hora: string; sede: string; doctoraId: string },
+): Promise<{ error?: string; aviso?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Tu sesión expiró. Vuelve a entrar." };
+
+  if (!datos.fecha || !datos.hora) return { error: "Falta la fecha o la hora." };
+  if (!datos.doctoraId) return { error: "Elige a la doctora que atiende." };
+
+  const cuando = new Date(`${datos.fecha}T${datos.hora}`);
+  if (Number.isNaN(cuando.getTime())) return { error: "La fecha o la hora no son válidas." };
+
+  const { data: solicitud, error: solError } = await supabase
+    .from("solicitudes_cita")
+    .select("id, nombre, email, motivo, estado, paciente_id")
+    .eq("id", solicitudId)
+    .maybeSingle();
+
+  if (solError || !solicitud) return { error: "No encontramos la solicitud." };
+  if (solicitud.estado === "cancelada") return { error: "Esa solicitud está cancelada." };
+  if (!solicitud.paciente_id) {
+    return {
+      error:
+        "Esta solicitud no está ligada a un expediente. Registra al paciente primero y vuelve a intentar.",
+    };
+  }
+
+  const { data: doctora } = await supabase
+    .from("staff")
+    .select("nombre_completo, nombre_agenda")
+    .eq("id", datos.doctoraId)
+    .maybeSingle();
+
+  const { error: citaError } = await supabase.from("consultas").insert({
+    paciente_id: solicitud.paciente_id,
+    doctora_id: datos.doctoraId,
+    doctora_nombre: doctora?.nombre_agenda ?? doctora?.nombre_completo ?? null,
+    sede: datos.sede || "Sin preferencia",
+    fecha: cuando.toISOString(),
+    motivo: solicitud.motivo,
+    estado: "agendada",
+  });
+
+  if (citaError) {
+    console.error("[agenda] no se pudo crear la consulta:", citaError);
+    return { error: "No se pudo crear la cita en la agenda." };
+  }
+
+  await supabase.from("solicitudes_cita").update({ estado: "agendada" }).eq("id", solicitudId);
+
+  if (!solicitud.email) {
+    return { aviso: "Cita agendada. No hay correo registrado: avísale por teléfono." };
+  }
+
+  const envio = await enviarConfirmacionAprobacion({
+    to: solicitud.email,
+    nombre: solicitud.nombre,
+    fechaPreferida: cuando.toISOString(),
+    hora: datos.hora,
+    sede: datos.sede,
+  });
+
+  if (!envio.ok) return { aviso: "Cita agendada, pero el correo no salió. Avísale por teléfono." };
+
+  return {};
+}
+
+// ── Cerrar la consulta: diagnóstico, receta, facturación y correo ───────────
+
+export type Medicamento = { nombre: string; dosis?: string; instrucciones?: string };
+
+export type CierreState =
+  | { status: "idle" }
+  | { status: "guardado" }
+  | { status: "cerrado"; correoEnviado: boolean }
+  | { status: "error"; message: string };
+
+export async function guardarConsulta(
+  consultaId: string,
+  accion: "guardar" | "cerrar",
+  formData: FormData,
+): Promise<CierreState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { status: "error", message: "Tu sesión expiró. Vuelve a entrar." };
+
+  const texto = (campo: string) => formData.get(campo)?.toString().trim() || null;
+
+  let medicamentos: Medicamento[] = [];
+  const crudo = formData.get("medicamentos")?.toString();
+  if (crudo) {
+    try {
+      const parsed = JSON.parse(crudo) as Medicamento[];
+      medicamentos = parsed.filter((m) => m?.nombre?.trim());
+    } catch {
+      return { status: "error", message: "La lista de medicamentos no se pudo leer." };
+    }
+  }
+
+  const { data: consulta, error: consultaError } = await supabase
+    .from("consultas")
+    .select("id, paciente_id, doctora_id, sede, fecha, receta_enviada")
+    .eq("id", consultaId)
+    .maybeSingle();
+
+  if (consultaError || !consulta) return { status: "error", message: "No encontramos la consulta." };
+
+  // 1. Datos clínicos
+  const { error: updateError } = await supabase
+    .from("consultas")
+    .update({
+      diagnostico: texto("diagnostico"),
+      tratamiento: texto("tratamiento"),
+      notas: texto("notas"),
+      notas_ampliadas: texto("notas_ampliadas"),
+      proxima_control: texto("proxima_control"),
+      ...(accion === "cerrar" ? { estado: "atendida" } : {}),
+    })
+    .eq("id", consultaId);
+
+  if (updateError) {
+    console.error("[consulta] no se pudo guardar:", updateError);
+    return { status: "error", message: "No se pudieron guardar los datos de la consulta." };
+  }
+
+  // 2. Datos de facturación, que viven en el expediente del paciente
+  const nit = texto("nit");
+  const direccion = texto("direccion_facturacion");
+  if (nit !== null || direccion !== null) {
+    await supabase
+      .from("pacientes")
+      .update({
+        ...(nit !== null ? { nit } : {}),
+        ...(direccion !== null ? { direccion } : {}),
+      })
+      .eq("id", consulta.paciente_id);
+  }
+
+  // 3. Receta: una por consulta, se reescribe si ya existía
+  const doctoraId = consulta.doctora_id ?? user.id;
+  if (medicamentos.length) {
+    const { data: existente } = await supabase
+      .from("recetas")
+      .select("id")
+      .eq("consulta_id", consultaId)
+      .maybeSingle();
+
+    const fila = {
+      consulta_id: consultaId,
+      doctora_id: doctoraId,
+      medicamentos,
+      fecha_emision: new Date().toISOString(),
+    };
+
+    const { error: recetaError } = existente
+      ? await supabase.from("recetas").update(fila).eq("id", existente.id)
+      : await supabase.from("recetas").insert(fila);
+
+    if (recetaError) {
+      console.error("[receta] no se pudo guardar:", recetaError);
+      return { status: "error", message: "Los datos se guardaron, pero la receta no." };
+    }
+  }
+
+  if (accion === "guardar") return { status: "guardado" };
+
+  // 4. Enviar el resumen al paciente
+  const { data: paciente } = await supabase
+    .from("pacientes")
+    .select("primer_nombre, primer_apellido, email")
+    .eq("id", consulta.paciente_id)
+    .maybeSingle();
+
+  if (!paciente?.email) return { status: "cerrado", correoEnviado: false };
+
+  const { data: doctora } = await supabase
+    .from("staff")
+    .select("nombre_agenda, nombre_completo")
+    .eq("id", doctoraId)
+    .maybeSingle();
+
+  const envio = await enviarRecetaEmail({
+    to: paciente.email,
+    pacienteNombre: `${paciente.primer_nombre} ${paciente.primer_apellido}`,
+    fechaConsulta: consulta.fecha,
+    doctoraNombre: doctora?.nombre_agenda ?? doctora?.nombre_completo ?? "Skin Clinic GT",
+    sede: consulta.sede,
+    diagnostico: texto("diagnostico"),
+    tratamiento: texto("tratamiento"),
+    notas: texto("notas"),
+    medicamentos,
+  });
+
+  if (envio.ok) {
+    await supabase
+      .from("consultas")
+      .update({ receta_enviada: true, receta_enviada_en: new Date().toISOString() })
+      .eq("id", consultaId);
+  }
+
+  return { status: "cerrado", correoEnviado: envio.ok };
 }
