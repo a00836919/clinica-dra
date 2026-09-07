@@ -4,7 +4,9 @@ import { Hero } from "@/components/landing/hero";
 import { Equipo } from "@/components/landing/equipo";
 import { Tecnologia } from "@/components/landing/tecnologia";
 import { CinematicMotion } from "@/components/motion/cinematic-motion";
-import { SEDES } from "@/lib/sedes";
+import { nombreSedeCompleto } from "@/lib/sedes";
+import { horarioPublicado } from "@/lib/disponibilidad";
+import { ACLARACION_PRECIO_CORTA, PRECIO_CONSULTA_TEXTO } from "@/lib/precios";
 
 export default function LandingPage() {
   return (
@@ -78,13 +80,33 @@ export default function LandingPage() {
               >
                 Te contactamos en menos de 24 horas para confirmar tu hora y sede.
               </p>
-              <div data-reveal-group className="mt-8 flex flex-col gap-2.5">
-                {SEDES.map((sede) => (
-                  <div key={sede} data-reveal-item className="flex items-center gap-2.5">
-                    <div className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-white/40" />
-                    <span className="text-[12px] text-white/55">{sede}</span>
+
+              {/* Días, sede y horas: lo que antes se preguntaba por teléfono */}
+              <div data-reveal-group className="mt-8 flex flex-col gap-3.5">
+                {horarioPublicado().map((h) => (
+                  <div
+                    key={`${h.sede}-${h.desde}-${h.etiquetaDias}`}
+                    data-reveal-item
+                    className="flex gap-2.5"
+                  >
+                    <div className="mt-[7px] h-1.5 w-1.5 flex-shrink-0 rounded-full bg-white/40" />
+                    <div className="flex flex-col leading-tight">
+                      <span className="text-[12px] text-white/80">{h.etiquetaDias}</span>
+                      <span className="text-[11px] text-white/55">
+                        {nombreSedeCompleto(h.sede)} · {h.etiquetaHoras}
+                      </span>
+                    </div>
                   </div>
                 ))}
+              </div>
+
+              <div className="mt-8 border-t border-white/20 pt-5">
+                <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-white/60">
+                  Consulta {PRECIO_CONSULTA_TEXTO}
+                </p>
+                <p className="mt-2 max-w-[32ch] text-[12px] leading-[1.7] text-white/60">
+                  {ACLARACION_PRECIO_CORTA}
+                </p>
               </div>
             </div>
 
@@ -123,8 +145,8 @@ export default function LandingPage() {
                 data-reveal-delay="0.05"
                 className="max-w-[30ch] text-[13px] leading-[1.8] text-[oklch(0.5_0.012_40)]"
               >
-                Ingresa con tu DPI y fecha de nacimiento para ver el historial de tus
-                consultas, diagnósticos y medicamentos recetados.
+                Ingresa con tu DPI o pasaporte y tu fecha de nacimiento para ver el historial de
+                tus consultas, diagnósticos y medicamentos recetados.
               </p>
             </div>
 
@@ -141,9 +163,17 @@ export default function LandingPage() {
           <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-[oklch(0.55_0.065_25)]">
             Skin Clinic GT
           </p>
-          <span className="text-[11px] text-[oklch(0.7_0.012_60)]">
-            © {new Date().getFullYear()}
-          </span>
+          <div className="flex items-center gap-4">
+            <a
+              href="/consentimiento"
+              className="text-[11px] text-[oklch(0.55_0.012_40)] underline underline-offset-4 transition-colors hover:text-[oklch(0.3_0.02_40)]"
+            >
+              Consentimiento informado
+            </a>
+            <span className="text-[11px] text-[oklch(0.7_0.012_60)]">
+              © {new Date().getFullYear()}
+            </span>
+          </div>
         </div>
       </footer>
     </div>

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   CalendarDays,
   CalendarOff,
+  CalendarSync,
   Users,
   LayoutDashboard,
   FileImage,
@@ -34,6 +35,7 @@ const nav = [
       { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
       { href: "/dashboard/agenda", icon: CalendarDays, label: "Agenda" },
       { href: "/dashboard/bloqueos", icon: CalendarOff, label: "Bloqueos" },
+      { href: "/dashboard/calendario", icon: CalendarSync, label: "Calendario" },
     ],
   },
   {

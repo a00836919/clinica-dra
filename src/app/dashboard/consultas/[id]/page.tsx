@@ -7,6 +7,10 @@ import { estadoConsulta, ESTADOS_CERRADOS } from "@/lib/estados";
 import { CierreConsultaForm } from "@/components/dashboard/cierre-consulta-form";
 import { ControlesConsulta } from "@/components/dashboard/controles-consulta";
 import type { Medicamento } from "@/app/actions";
+import { tipoIdentificacion } from "@/lib/identificacion";
+import { enlaceGoogleCalendar } from "@/lib/ics";
+import { HORARIO } from "@/lib/disponibilidad";
+import { nombreSedeCompleto } from "@/lib/sedes";
 
 export default async function ConsultaPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -15,12 +19,15 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
   const { data: consulta } = await supabase
     .from("consultas")
     .select(
-      `id, fecha, motivo, estado, sede, diagnostico, tratamiento, notas, notas_ampliadas,
+      `id, fecha, motivo, estado, sede, diagnostico, diagnostico_cie10, diagnostico_cie10_desc,
+       tratamiento, notas, notas_ampliadas,
        proxima_control, receta_enviada, receta_enviada_en, doctora_nombre,
        paciente_nombre, paciente_telefono, origen,
        paciente:pacientes!consultas_paciente_id_fkey(
          id, primer_nombre, primer_apellido, telefono, email, nit, direccion,
-         fecha_nacimiento, numero_identificacion, condiciones_medicas, medicamentos_actuales
+         fecha_nacimiento, tipo_identificacion, numero_identificacion,
+         consentimiento_aceptado_en, consentimiento_version,
+         condiciones_medicas, medicamentos_actuales
        ),
        recetas(id, medicamentos, fecha_emision)`,
     )
@@ -38,7 +45,10 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
     nit: string | null;
     direccion: string | null;
     fecha_nacimiento: string;
+    tipo_identificacion: string | null;
     numero_identificacion: string;
+    consentimiento_aceptado_en: string | null;
+    consentimiento_version: string | null;
     condiciones_medicas: string | null;
     medicamentos_actuales: string | null;
   } | null;
@@ -50,6 +60,16 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
   const nombre = paciente
     ? `${paciente.primer_nombre} ${paciente.primer_apellido}`
     : (consulta.paciente_nombre ?? "Paciente");
+
+  const inicio = new Date(consulta.fecha);
+  const enGoogle = enlaceGoogleCalendar({
+    uid: `consulta-${consulta.id}@skinclinic.gt`,
+    inicio,
+    fin: new Date(inicio.getTime() + HORARIO.minutosPorFranja * 60_000),
+    titulo: `Consulta · ${nombre}`,
+    descripcion: consulta.motivo ?? undefined,
+    lugar: nombreSedeCompleto(consulta.sede),
+  });
 
   return (
     <div className="mx-auto max-w-4xl p-6">
@@ -89,14 +109,25 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
             </p>
           </div>
 
-          {paciente && (
-            <Link
-              href={`/dashboard/pacientes/${paciente.id}`}
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href={enGoogle}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Agrega solo esta cita. Para ver toda la agenda, suscríbete en Calendario."
               className="rounded-lg border border-border/60 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
             >
-              Ver expediente
-            </Link>
-          )}
+              Agregar a Google Calendar
+            </a>
+            {paciente && (
+              <Link
+                href={`/dashboard/pacientes/${paciente.id}`}
+                className="rounded-lg border border-border/60 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+              >
+                Ver expediente
+              </Link>
+            )}
+          </div>
         </div>
       </div>
 
@@ -107,13 +138,25 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
       {/* Contexto del paciente: lo que la doctora necesita a la vista */}
       {paciente && (
         <div className="mb-6 grid gap-3 rounded-xl border border-border/60 bg-muted/30 p-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Dato etiqueta="DPI" valor={paciente.numero_identificacion} />
+          <Dato
+            etiqueta={tipoIdentificacion(paciente.tipo_identificacion)}
+            valor={paciente.numero_identificacion}
+          />
           <Dato
             etiqueta="Nacimiento"
             valor={format(new Date(`${paciente.fecha_nacimiento}T12:00:00`), "d MMM yyyy", { locale: es })}
           />
           <Dato etiqueta="Teléfono" valor={paciente.telefono} />
           <Dato etiqueta="Correo" valor={paciente.email ?? "Sin correo"} />
+          <Dato
+            etiqueta="Consentimiento"
+            valor={
+              paciente.consentimiento_aceptado_en
+                ? `Aceptado el ${format(new Date(paciente.consentimiento_aceptado_en), "d MMM yyyy", { locale: es })}` +
+                  (paciente.consentimiento_version ? ` · ${paciente.consentimiento_version}` : "")
+                : "Pendiente — fírmalo en la clínica"
+            }
+          />
           {consulta.motivo && (
             <div className="sm:col-span-2 lg:col-span-4">
               <Dato etiqueta="Motivo de la visita" valor={consulta.motivo} />
@@ -136,6 +179,8 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
         consulta={{
           id: consulta.id,
           diagnostico: consulta.diagnostico,
+          cie10: consulta.diagnostico_cie10,
+          cie10Descripcion: consulta.diagnostico_cie10_desc,
           tratamiento: consulta.tratamiento,
           notas: consulta.notas,
           notas_ampliadas: consulta.notas_ampliadas,

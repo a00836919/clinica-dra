@@ -1,6 +1,8 @@
 import Image from "next/image";
 import recepcion from "@/assets/fotos/recepcion.jpg";
-import { SEDES } from "@/lib/sedes";
+import { nombreSedeCompleto } from "@/lib/sedes";
+import { horarioPublicado } from "@/lib/disponibilidad";
+import { PRECIO_CONSULTA_TEXTO } from "@/lib/precios";
 
 /**
  * Escenario fotográfico de apertura: la foto de la recepción ocupa el viewport,
@@ -115,8 +117,8 @@ export function Hero() {
               data-hero-step
               className="on-photo mb-9 max-w-[42ch] text-[14px] leading-relaxed text-white/85"
             >
-              Solicita tu cita en línea o ingresa con tu DPI para ver el historial de tus
-              consultas, diagnósticos y recetas.
+              Solicita tu cita en línea o ingresa con tu DPI o pasaporte para ver el historial
+              de tus consultas, diagnósticos y recetas.
             </p>
 
             <div data-hero-step className="flex flex-wrap items-center gap-3">
@@ -144,16 +146,24 @@ export function Hero() {
             className="rounded-2xl border border-white/15 bg-white/[0.07] p-6 backdrop-blur-[2px] md:justify-self-end md:w-full"
           >
             <p className="mb-4 text-[10px] font-medium uppercase tracking-[0.25em] text-white/55">
-              Tres sedes
+              Días de consulta
             </p>
-            <ul className="flex flex-col gap-2.5">
-              {SEDES.map((sede) => (
-                <li key={sede} className="flex items-center gap-2.5">
-                  <span className="h-1 w-1 flex-shrink-0 rounded-full bg-white/45" />
-                  <span className="text-[13px] text-white/80">{sede}</span>
+            <ul className="flex flex-col gap-3.5">
+              {horarioPublicado().map((h) => (
+                <li key={`${h.sede}-${h.desde}-${h.etiquetaDias}`} className="flex gap-2.5">
+                  <span className="mt-[7px] h-1 w-1 flex-shrink-0 rounded-full bg-white/45" />
+                  <span className="flex flex-col leading-tight">
+                    <span className="text-[13px] text-white/85">{h.etiquetaDias}</span>
+                    <span className="text-[11px] text-white/55">
+                      {nombreSedeCompleto(h.sede)} · {h.etiquetaHoras}
+                    </span>
+                  </span>
                 </li>
               ))}
             </ul>
+            <p className="mt-5 border-t border-white/15 pt-4 text-[11px] leading-relaxed text-white/60">
+              Consulta {PRECIO_CONSULTA_TEXTO}. El procedimiento que se realice se cobra aparte.
+            </p>
           </div>
         </div>
       </div>

@@ -1,6 +1,8 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
+import { ACLARACION_PRECIO, PRECIO_CONSULTA_TEXTO } from "@/lib/precios";
+import { nombreSedeCompleto, SIN_PREFERENCIA } from "@/lib/sedes";
 
 // ── Plantilla compartida ──────────────────────────────────────────────────────
 
@@ -211,6 +213,12 @@ async function enviar({
   }
 }
 
+/** "Galerías Tiffany · Zona 14", o nada si el paciente no eligió sede. */
+function sedeVisible(sede?: string | null) {
+  if (!sede || sede === SIN_PREFERENCIA) return null;
+  return nombreSedeCompleto(sede);
+}
+
 function nota(texto: string) {
   return `<p style="margin:0;font-size:12px;color:${COLORS.muted};line-height:1.7;">${texto}</p>`;
 }
@@ -246,11 +254,15 @@ export async function enviarConfirmacionSolicitud({
           ${datosBox([
             [hora ? "Día solicitado" : "Fecha aproximada", fechaLarga(fechaPreferida)],
             ["Hora solicitada", hora],
-            ["Sede", sede && sede !== "Sin preferencia" ? sede : null],
+            ["Sede", sedeVisible(sede)],
+            ["Costo de la consulta", PRECIO_CONSULTA_TEXTO],
           ])}
 
+          ${nota(ACLARACION_PRECIO)}
+
           ${nota(`Todavía <strong>no es una cita confirmada</strong>: te enviaremos un segundo
-            correo cuando la clínica confirme tu hora. Recuerda traer tu DPI el día de la consulta.`)}`,
+            correo cuando la clínica confirme tu hora. Recuerda traer tu DPI o pasaporte el día
+            de la consulta.`)}`,
   });
 
   return enviar({ to, subject: "Solicitud de cita recibida — Skin Clinic GT", html });
@@ -274,12 +286,15 @@ export async function enviarConfirmacionAprobacion({
           ${datosBox([
             ["Fecha", fechaLarga(fechaPreferida)],
             ["Hora", hora],
-            ["Sede", sede && sede !== "Sin preferencia" ? sede : null],
+            ["Sede", sedeVisible(sede)],
+            ["Costo de la consulta", PRECIO_CONSULTA_TEXTO],
           ])}
 
-          ${nota(`Recuerda traer tu DPI el día de la consulta. Si necesitas cancelar o
-            reagendar, entra a <strong>Mis citas</strong> en nuestro sitio con tu DPI y fecha
-            de nacimiento, o contáctanos con anticipación.`)}`,
+          ${nota(ACLARACION_PRECIO)}
+
+          ${nota(`Recuerda traer tu DPI o pasaporte el día de la consulta. Si necesitas cancelar o
+            reagendar, entra a <strong>Mis citas</strong> en nuestro sitio con tu identificación y
+            fecha de nacimiento, o contáctanos con anticipación.`)}`,
   });
 
   return enviar({ to, subject: "Tu cita está confirmada — Skin Clinic GT", html });
@@ -314,7 +329,7 @@ export async function enviarConfirmacionCancelacion({
 
           ${datosBox([
             ["Fecha solicitada", fechaLarga(fechaPreferida)],
-            ["Sede", sede && sede !== "Sin preferencia" ? sede : null],
+            ["Sede", sedeVisible(sede)],
           ])}
 
           ${nota(cuerpoNota)}`,
@@ -338,6 +353,7 @@ export async function enviarRecetaEmail({
   doctoraNombre,
   sede,
   diagnostico,
+  cie10,
   tratamiento,
   notas,
   medicamentos,
@@ -348,6 +364,8 @@ export async function enviarRecetaEmail({
   doctoraNombre: string;
   sede?: string | null;
   diagnostico?: string | null;
+  /** "L70.0 — Acné vulgar". Es lo que pide el seguro. */
+  cie10?: string | null;
   tratamiento?: string | null;
   notas?: string | null;
   medicamentos?: Medicamento[] | null;
@@ -381,11 +399,12 @@ export async function enviarRecetaEmail({
     cuerpo: `
           <p style="margin:0 0 28px;font-size:15px;color:${COLORS.text};">
             Hola <strong>${esc(pacienteNombre)}</strong>, aquí está el resumen de tu consulta con
-            <strong>${esc(doctoraNombre)}</strong>${sede ? ` en ${esc(sede)}` : ""}.
+            <strong>${esc(doctoraNombre)}</strong>${sede ? ` en ${esc(nombreSedeCompleto(sede))}` : ""}.
           </p>
 
           <div style="border-top:1px solid ${COLORS.border};padding-top:24px;margin-bottom:24px;">
             ${diagnostico ? seccion("Diagnóstico", diagnostico) : ""}
+            ${cie10 ? seccion("Código CIE-10", cie10) : ""}
             ${tratamiento ? seccion("Tratamiento indicado", tratamiento) : ""}
             ${notas ? seccion("Notas adicionales", notas) : ""}
             ${medicamentosHtml}

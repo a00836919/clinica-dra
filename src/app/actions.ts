@@ -10,8 +10,18 @@ import {
 } from "@/lib/email";
 import { setPortalCookie, clearPortalCookie, getPortalPatientId } from "@/lib/portal-session";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { parseISO } from "date-fns";
-import { calcularFranjas, esDiaAbierto, HORARIO } from "@/lib/disponibilidad";
+import { calcularFranjas, esDiaAbierto, franjasDelDia, HORARIO } from "@/lib/disponibilidad";
+import { VERSION_CONSENTIMIENTO } from "@/lib/consentimiento";
+import { descripcionCie10, etiquetaCie10 } from "@/lib/cie10";
+import {
+  nombreEnFrase,
+  normalizarIdentificacion,
+  tipoIdentificacion,
+  validarIdentificacion,
+  TIPO_POR_DEFECTO,
+} from "@/lib/identificacion";
 
 
 /**
@@ -27,6 +37,40 @@ function conDetalle(mensaje: string, error: { message?: string } | null) {
   return `${mensaje} — ${error.message}`;
 }
 
+/**
+ * El día y la hora pedidos tienen que caer en el horario de esa sede.
+ *
+ * El formulario ya solo ofrece franjas válidas, pero la acción es un endpoint
+ * público: sin esto, un POST a mano mete una cita del domingo a medianoche en
+ * la bandeja de la secretaria.
+ */
+function franjaFueraDeHorario(fecha: string | null, hora: string | null, sede: string) {
+  if (!fecha) return false; // Sin día elegido, la clínica llama para acordarlo.
+  const dia = parseISO(`${fecha}T12:00:00`);
+  if (Number.isNaN(dia.getTime())) return true;
+  if (!esDiaAbierto(dia, sede)) return true;
+  return Boolean(hora) && !franjasDelDia(dia, sede).includes(hora!);
+}
+
+const ERROR_FUERA_DE_HORARIO =
+  "Ese día y hora ya no están disponibles en esa sede. Elige otra franja del calendario.";
+
+/** Lo que se escribe cuando el paciente acepta el consentimiento informado. */
+function marcaDeConsentimiento() {
+  return {
+    consentimiento_version: VERSION_CONSENTIMIENTO,
+    consentimiento_aceptado_en: new Date().toISOString(),
+  };
+}
+
+function aceptoConsentimiento(formData: FormData) {
+  const valor = formData.get("consentimiento")?.toString();
+  return valor === "on" || valor === "true";
+}
+
+const ERROR_SIN_CONSENTIMIENTO =
+  "Para agendar necesitamos que aceptes el consentimiento informado.";
+
 // ── Verificar paciente por DPI + fecha de nacimiento ──────────────────────────
 
 export type PacienteResumen = {
@@ -35,6 +79,8 @@ export type PacienteResumen = {
   primer_apellido: string;
   telefono: string;
   email: string | null;
+  /** Última vez que aceptó el consentimiento informado, si lo hizo. */
+  consentimiento_aceptado_en?: string | null;
 };
 
 export type VerifyResult =
@@ -42,20 +88,32 @@ export type VerifyResult =
   | { status: "not_found" }
   | { status: "error"; message: string };
 
-export async function verificarPaciente(dpi: string, fechaNacimiento: string): Promise<VerifyResult> {
-  const dpiTrim = dpi?.trim();
+export async function verificarPaciente(
+  identificacion: string,
+  fechaNacimiento: string,
+  tipo: string = TIPO_POR_DEFECTO,
+): Promise<VerifyResult> {
+  const clase = tipoIdentificacion(tipo);
   const fecha = fechaNacimiento?.trim();
-  if (!dpiTrim || !fecha) {
+  // El número se normaliza igual al guardar y al buscar: si no, "A 123456" y
+  // "a123456" serían dos pacientes distintos y nadie encontraría su expediente.
+  const numero = normalizarIdentificacion(clase, identificacion ?? "");
+
+  if (!numero || !fecha) {
     return { status: "error", message: "Completa ambos campos." };
   }
+  const problema = validarIdentificacion(clase, numero);
+  if (problema) return { status: "error", message: problema };
 
   const supabase = createAdminClient();
   if (!supabase) return { status: "error", message: ERROR_CONFIG };
 
+  // No se filtra por tipo_identificacion: los expedientes viejos se cargaron
+  // todos como "DPI", y el número ya es único por sí mismo.
   const { data: paciente, error } = await supabase
     .from("pacientes")
-    .select("id, primer_nombre, primer_apellido, telefono, email")
-    .eq("numero_identificacion", dpiTrim)
+    .select("id, primer_nombre, primer_apellido, telefono, email, consentimiento_aceptado_en")
+    .eq("numero_identificacion", numero)
     .eq("fecha_nacimiento", fecha)
     .maybeSingle();
 
@@ -91,6 +149,11 @@ export async function solicitarCitaExistente(formData: FormData): Promise<Solici
   const fecha_preferida = fechaStr ? fechaStr : null;
   const hora_preferida = formData.get("hora_preferida")?.toString() || null;
 
+  if (!aceptoConsentimiento(formData)) return { status: "error", message: ERROR_SIN_CONSENTIMIENTO };
+  if (franjaFueraDeHorario(fecha_preferida, hora_preferida, sede)) {
+    return { status: "error", message: ERROR_FUERA_DE_HORARIO };
+  }
+
   const supabase = createAdminClient();
   if (!supabase) return { status: "error", message: ERROR_CONFIG };
 
@@ -117,12 +180,17 @@ export async function solicitarCitaExistente(formData: FormData): Promise<Solici
     fecha_preferida,
     hora_preferida,
     paciente_id: patientId,
+    ...marcaDeConsentimiento(),
   });
 
   if (error) {
     console.error("[citas] solicitarCitaExistente — insert de solicitud falló:", error);
     return { status: "error", message: "No pudimos registrar tu solicitud." };
   }
+
+  // La aceptación también se guarda en el expediente: es ahí donde la doctora
+  // la busca antes de atender, no en una solicitud de hace ocho meses.
+  await supabase.from("pacientes").update(marcaDeConsentimiento()).eq("id", patientId);
 
   let correoEnviado = false;
   if (paciente.email) {
@@ -142,9 +210,10 @@ export async function solicitarCitaExistente(formData: FormData): Promise<Solici
 // ── Solicitar cita — paciente nuevo (crea paciente + solicitud + sesión) ──────
 
 export async function solicitarCitaNueva(
-  dpi: string,
+  identificacion: string,
   fechaNacimiento: string,
   formData: FormData,
+  tipo: string = TIPO_POR_DEFECTO,
 ): Promise<SolicitudState> {
   const primer_nombre = formData.get("primer_nombre")?.toString().trim();
   const primer_apellido = formData.get("primer_apellido")?.toString().trim();
@@ -159,8 +228,18 @@ export async function solicitarCitaNueva(
   if (!primer_nombre || !primer_apellido || !telefono) {
     return { status: "error", message: "Nombre, apellido y teléfono son obligatorios." };
   }
-  if (!dpi?.trim() || !fechaNacimiento?.trim()) {
-    return { status: "error", message: "Falta DPI o fecha de nacimiento." };
+
+  const clase = tipoIdentificacion(tipo);
+  const numero = normalizarIdentificacion(clase, identificacion ?? "");
+  if (!numero || !fechaNacimiento?.trim()) {
+    return { status: "error", message: "Falta la identificación o la fecha de nacimiento." };
+  }
+  const problema = validarIdentificacion(clase, numero);
+  if (problema) return { status: "error", message: problema };
+
+  if (!aceptoConsentimiento(formData)) return { status: "error", message: ERROR_SIN_CONSENTIMIENTO };
+  if (franjaFueraDeHorario(fecha_preferida, hora_preferida, sede)) {
+    return { status: "error", message: ERROR_FUERA_DE_HORARIO };
   }
 
   const supabase = createAdminClient();
@@ -170,14 +249,15 @@ export async function solicitarCitaNueva(
   const { data: nuevoPaciente, error: insertError } = await supabase
     .from("pacientes")
     .insert({
-      tipo_identificacion: "DPI",
-      numero_identificacion: dpi.trim(),
+      tipo_identificacion: clase,
+      numero_identificacion: numero,
       fecha_nacimiento: fechaNacimiento.trim(),
       primer_nombre,
       primer_apellido,
       sexo: "Prefiero no decirlo",
       telefono,
       email,
+      ...marcaDeConsentimiento(),
     })
     .select("id")
     .single();
@@ -190,7 +270,8 @@ export async function solicitarCitaNueva(
       return {
         status: "error",
         message:
-          "Ese DPI ya está registrado, pero la fecha de nacimiento no coincide. Revísala e intenta de nuevo.",
+          `Ese ${nombreEnFrase(clase)} ya está registrado, pero la fecha de nacimiento no coincide. ` +
+          "Revísala e intenta de nuevo.",
       };
     }
     return { status: "error", message: "No pudimos crear tu registro. Intenta de nuevo." };
@@ -207,6 +288,7 @@ export async function solicitarCitaNueva(
     fecha_preferida,
     hora_preferida,
     paciente_id: nuevoPaciente.id,
+    ...marcaDeConsentimiento(),
   });
 
   if (solError) {
@@ -296,7 +378,8 @@ export async function finalizarConsulta(consultaId: string): Promise<{ error?: s
     .update({ estado: "atendida" })
     .eq("id", consultaId)
     .select(`
-      id, fecha, diagnostico, tratamiento, notas, sede, receta_enviada,
+      id, fecha, diagnostico, diagnostico_cie10, diagnostico_cie10_desc,
+      tratamiento, notas, sede, receta_enviada,
       paciente:pacientes!consultas_paciente_id_fkey(primer_nombre, primer_apellido, email),
       doctora:staff!consultas_doctora_id_fkey(nombre_completo)
     `)
@@ -326,6 +409,7 @@ export async function finalizarConsulta(consultaId: string): Promise<{ error?: s
       doctoraNombre: doctora?.nombre_completo ?? "Dra. Majo Polanco",
       sede: consulta.sede,
       diagnostico: consulta.diagnostico,
+      cie10: etiquetaCie10(consulta.diagnostico_cie10, consulta.diagnostico_cie10_desc),
       tratamiento: consulta.tratamiento,
       notas: consulta.notas,
     medicamentos: receta?.medicamentos ?? null,
@@ -463,6 +547,12 @@ export async function guardarConsulta(
     }
   }
 
+  // El código se guarda en mayúsculas y sin espacios: es lo que espera la
+  // aseguradora, y evita tener "l70.0" y "L70.0" como si fueran distintos.
+  const cie10 = formData.get("diagnostico_cie10")?.toString().trim().toUpperCase() || null;
+  const cie10Descripcion =
+    formData.get("diagnostico_cie10_desc")?.toString().trim() || descripcionCie10(cie10);
+
   const { data: consulta, error: consultaError } = await supabase
     .from("consultas")
     .select("id, paciente_id, doctora_id, sede, fecha, receta_enviada")
@@ -476,6 +566,8 @@ export async function guardarConsulta(
     .from("consultas")
     .update({
       diagnostico: texto("diagnostico"),
+      diagnostico_cie10: cie10,
+      diagnostico_cie10_desc: cie10Descripcion,
       tratamiento: texto("tratamiento"),
       notas: texto("notas"),
       notas_ampliadas: texto("notas_ampliadas"),
@@ -518,6 +610,7 @@ export async function guardarConsulta(
       consulta_id: consultaId,
       doctora_id: doctoraId,
       medicamentos,
+      diagnostico_cie10: cie10,
       fecha_emision: new Date().toISOString(),
     };
 
@@ -558,6 +651,7 @@ export async function guardarConsulta(
     doctoraNombre: doctora?.nombre_agenda ?? doctora?.nombre_completo ?? "Skin Clinic GT",
     sede: consulta.sede,
     diagnostico: texto("diagnostico"),
+    cie10: etiquetaCie10(cie10, cie10Descripcion),
     tratamiento: texto("tratamiento"),
     notas: texto("notas"),
     medicamentos,
@@ -587,12 +681,13 @@ async function sesionStaff() {
 export type PacienteBusqueda = {
   id: string;
   nombre: string;
+  tipo_identificacion: string;
   numero_identificacion: string;
   telefono: string;
   email: string | null;
 };
 
-/** Busca por nombre, apellido o DPI para agendar sin pasar por la web. */
+/** Busca por nombre, apellido, DPI o pasaporte para agendar sin pasar por la web. */
 export async function buscarPacientes(query: string): Promise<PacienteBusqueda[]> {
   const sesion = await sesionStaff();
   if (!sesion) return [];
@@ -605,7 +700,9 @@ export async function buscarPacientes(query: string): Promise<PacienteBusqueda[]
 
   const { data, error } = await sesion.supabase
     .from("pacientes")
-    .select("id, primer_nombre, primer_apellido, numero_identificacion, telefono, email")
+    .select(
+      "id, primer_nombre, primer_apellido, tipo_identificacion, numero_identificacion, telefono, email",
+    )
     .or(
       `primer_nombre.ilike.${patron},primer_apellido.ilike.${patron},numero_identificacion.ilike.${patron}`,
     )
@@ -620,6 +717,7 @@ export async function buscarPacientes(query: string): Promise<PacienteBusqueda[]
   return (data ?? []).map((p) => ({
     id: p.id,
     nombre: `${p.primer_nombre} ${p.primer_apellido}`,
+    tipo_identificacion: tipoIdentificacion(p.tipo_identificacion),
     numero_identificacion: p.numero_identificacion,
     telefono: p.telefono,
     email: p.email,
@@ -786,7 +884,7 @@ export async function franjasDisponibles(
   sede?: string,
 ): Promise<{ hora: string; disponible: boolean }[]> {
   const dia = parseISO(fechaISO);
-  if (Number.isNaN(dia.getTime()) || !esDiaAbierto(dia)) return [];
+  if (Number.isNaN(dia.getTime()) || !esDiaAbierto(dia, sede)) return [];
 
   const supabase = createAdminClient();
   if (!supabase) return [];
@@ -826,7 +924,7 @@ export async function franjasDisponibles(
       .map((b) => ({ desde: new Date(b.desde), hasta: new Date(b.hasta) })),
   ];
 
-  return calcularFranjas({ dia, ocupaciones });
+  return calcularFranjas({ dia, sede, ocupaciones });
 }
 
 // ── Bloqueos de agenda (personal) ───────────────────────────────────────────
@@ -884,4 +982,95 @@ export async function eliminarBloqueo(id: string): Promise<{ error?: string }> {
     return { error: conDetalle("No se pudo eliminar el bloqueo.", error) };
   }
   return {};
+}
+
+// ── Calendario de la doctora (suscripción ICS) ───────────────────────────────
+
+export type SuscripcionCalendario = {
+  /** URL https:// para pegar en Google Calendar ("Desde URL"). */
+  url: string;
+  /** Misma URL en webcal://, que Apple Calendar y Outlook abren de un clic. */
+  webcal: string;
+  doctora: string;
+};
+
+/** El origen real de la petición: en local es localhost y en Vercel el dominio. */
+async function origenPublico() {
+  const cabeceras = await headers();
+  const host = cabeceras.get("x-forwarded-host") ?? cabeceras.get("host") ?? "localhost:3000";
+  const protocolo = cabeceras.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  return { host, url: `${protocolo}://${host}` };
+}
+
+/**
+ * Enlace de suscripción del staff que tiene la sesión abierta.
+ *
+ * El token se crea la primera vez que alguien entra a la página: así no hace
+ * falta que la migración adivine uno para cada fila, y quien nunca use el
+ * calendario simplemente no tiene enlace que filtrar.
+ */
+export async function suscripcionCalendario(): Promise<
+  { error: string } | SuscripcionCalendario
+> {
+  const sesion = await sesionStaff();
+  if (!sesion) return { error: "Tu sesión expiró. Vuelve a entrar." };
+
+  const { data: staff, error } = await sesion.supabase
+    .from("staff")
+    .select("id, nombre_completo, nombre_agenda, calendario_token")
+    .eq("id", sesion.user.id)
+    .maybeSingle();
+
+  if (error || !staff) {
+    console.error("[calendario] no se pudo leer el staff:", error);
+    return { error: conDetalle("No se pudo leer tu perfil de staff.", error) };
+  }
+
+  let token: string | null = staff.calendario_token;
+  if (!token) {
+    token = crypto.randomUUID();
+    const { error: errorToken } = await sesion.supabase
+      .from("staff")
+      .update({ calendario_token: token })
+      .eq("id", staff.id);
+    if (errorToken) {
+      console.error("[calendario] no se pudo crear el token:", errorToken);
+      return { error: conDetalle("No se pudo generar tu enlace de calendario.", errorToken) };
+    }
+  }
+
+  const { host, url } = await origenPublico();
+  return {
+    url: `${url}/api/calendario/${token}`,
+    webcal: `webcal://${host}/api/calendario/${token}`,
+    doctora: staff.nombre_agenda ?? staff.nombre_completo ?? "Skin Clinic GT",
+  };
+}
+
+/** Rompe el enlace anterior y entrega uno nuevo. Para cuando se filtró. */
+export async function regenerarSuscripcionCalendario(): Promise<
+  { error: string } | SuscripcionCalendario
+> {
+  const sesion = await sesionStaff();
+  if (!sesion) return { error: "Tu sesión expiró. Vuelve a entrar." };
+
+  const token = crypto.randomUUID();
+  const { data: staff, error } = await sesion.supabase
+    .from("staff")
+    .update({ calendario_token: token })
+    .eq("id", sesion.user.id)
+    .select("nombre_completo, nombre_agenda")
+    .maybeSingle();
+
+  if (error || !staff) {
+    console.error("[calendario] no se pudo regenerar el token:", error);
+    return { error: conDetalle("No se pudo regenerar tu enlace.", error) };
+  }
+
+  const { host, url } = await origenPublico();
+  return {
+    url: `${url}/api/calendario/${token}`,
+    webcal: `webcal://${host}/api/calendario/${token}`,
+    doctora: staff.nombre_agenda ?? staff.nombre_completo ?? "Skin Clinic GT",
+  };
 }

@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { CancelarSolicitudBtn } from "@/components/portal/cancelar-btn";
 import { logoutPortal } from "@/app/actions";
+import { etiquetaCie10 } from "@/lib/cie10";
 
 const ESTADO_LABEL: Record<string, { label: string; color: string }> = {
   pendiente:  { label: "Pendiente",  color: "oklch(0.55 0.09 70)" },
@@ -40,7 +41,8 @@ export default async function MisCitasPage() {
     supabase
       .from("consultas")
       .select(`
-        id, fecha, estado, motivo, diagnostico, tratamiento, sede,
+        id, fecha, estado, motivo, diagnostico, diagnostico_cie10, diagnostico_cie10_desc,
+        tratamiento, sede,
         receta_enviada,
         doctora:staff!consultas_doctora_id_fkey(nombre_completo),
         recetas(id, medicamentos, fecha_emision)
@@ -173,12 +175,19 @@ export default async function MisCitasPage() {
                     </div>
 
                     <div className="px-5 py-4 flex flex-col gap-4">
-                      {c.diagnostico && (
+                      {(c.diagnostico || c.diagnostico_cie10) && (
                         <div>
                           <p className="text-[10px] tracking-wider uppercase text-[oklch(0.72_0.065_25)] font-medium mb-1">
                             Diagnóstico
                           </p>
-                          <p className="text-sm text-[oklch(0.25_0_0)] leading-relaxed">{c.diagnostico}</p>
+                          {c.diagnostico && (
+                            <p className="text-sm text-[oklch(0.25_0_0)] leading-relaxed">{c.diagnostico}</p>
+                          )}
+                          {c.diagnostico_cie10 && (
+                            <p className="mt-1 text-xs text-[oklch(0.5_0.012_40)]">
+                              CIE-10: {etiquetaCie10(c.diagnostico_cie10, c.diagnostico_cie10_desc)}
+                            </p>
+                          )}
                         </div>
                       )}
                       {c.tratamiento && (

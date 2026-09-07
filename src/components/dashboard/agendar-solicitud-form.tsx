@@ -3,7 +3,9 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { agendarSolicitud } from "@/app/actions";
-import { SEDES, SIN_PREFERENCIA } from "@/lib/sedes";
+import { SEDES, SIN_PREFERENCIA, nombreSedeCompleto } from "@/lib/sedes";
+import { diasCortosDeSede } from "@/lib/disponibilidad";
+import { AvisoHorario } from "@/components/dashboard/aviso-horario";
 
 const CAMPO =
   "rounded-md border border-border/60 bg-background px-2 py-1 text-xs transition-colors focus:border-ring focus:outline-none";
@@ -30,6 +32,17 @@ export function AgendarSolicitudForm({
   const [mensaje, setMensaje] = useState<{ tipo: "error" | "aviso"; texto: string } | null>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
+
+  const sedePorDefecto =
+    sedeSugerida && SEDES.includes(sedeSugerida as (typeof SEDES)[number])
+      ? sedeSugerida
+      : SEDES[0];
+
+  // Fecha, hora y sede son estado y no campos sueltos porque el aviso de
+  // horario tiene que reaccionar a lo que la secretaria va escribiendo.
+  const [fecha, setFecha] = useState(fechaSugerida ?? "");
+  const [hora, setHora] = useState("09:00");
+  const [sede, setSede] = useState<string>(sedePorDefecto);
 
   function agendar(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -74,11 +87,6 @@ export function AgendarSolicitudForm({
     );
   }
 
-  const sedePorDefecto =
-    sedeSugerida && SEDES.includes(sedeSugerida as (typeof SEDES)[number])
-      ? sedeSugerida
-      : SEDES[0];
-
   return (
     <form onSubmit={agendar} className="flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/30 p-2">
       <div className="flex flex-wrap items-center gap-2">
@@ -86,7 +94,8 @@ export function AgendarSolicitudForm({
           name="fecha"
           type="date"
           required
-          defaultValue={fechaSugerida ?? ""}
+          value={fecha}
+          onChange={(e) => setFecha(e.target.value)}
           aria-label="Fecha de la cita"
           className={CAMPO}
         />
@@ -94,15 +103,22 @@ export function AgendarSolicitudForm({
           name="hora"
           type="time"
           required
-          defaultValue="09:00"
+          value={hora}
+          onChange={(e) => setHora(e.target.value)}
           step={900}
           aria-label="Hora de la cita"
           className={CAMPO}
         />
-        <select name="sede" defaultValue={sedePorDefecto} aria-label="Sede" className={CAMPO}>
+        <select
+          name="sede"
+          value={sede}
+          onChange={(e) => setSede(e.target.value)}
+          aria-label="Sede"
+          className={CAMPO}
+        >
           {SEDES.map((s) => (
             <option key={s} value={s}>
-              {s}
+              {nombreSedeCompleto(s)} — {diasCortosDeSede(s)}
             </option>
           ))}
         </select>
@@ -114,6 +130,8 @@ export function AgendarSolicitudForm({
           ))}
         </select>
       </div>
+
+      <AvisoHorario fecha={fecha} hora={hora} sede={sede} />
 
       {mensaje && (
         <p

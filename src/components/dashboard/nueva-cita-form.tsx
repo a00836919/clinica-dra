@@ -3,7 +3,9 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { buscarPacientes, crearCita, type PacienteBusqueda } from "@/app/actions";
-import { SEDES } from "@/lib/sedes";
+import { SEDES, nombreSedeCompleto } from "@/lib/sedes";
+import { diasCortosDeSede } from "@/lib/disponibilidad";
+import { AvisoHorario } from "@/components/dashboard/aviso-horario";
 import type { Doctora } from "@/components/dashboard/agendar-solicitud-form";
 
 const CAMPO =
@@ -23,6 +25,11 @@ export function NuevaCitaForm({ doctoras }: { doctoras: Doctora[] }) {
   const [mensaje, setMensaje] = useState<{ tipo: "error" | "aviso"; texto: string } | null>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
+
+  // Controlados para que el aviso de horario siga a lo que se está eligiendo.
+  const [fecha, setFecha] = useState("");
+  const [hora, setHora] = useState("09:00");
+  const [sede, setSede] = useState<string>(SEDES[0]);
 
   // Búsqueda con freno, para no consultar en cada tecla. El indicador de
   // "buscando" se enciende en el onChange, no aquí: marcar estado dentro del
@@ -50,6 +57,9 @@ export function NuevaCitaForm({ doctoras }: { doctoras: Doctora[] }) {
     setResultados([]);
     setElegido(null);
     setMensaje(null);
+    setFecha("");
+    setHora("09:00");
+    setSede(SEDES[0]);
   }
 
   function crear(e: React.FormEvent<HTMLFormElement>) {
@@ -117,7 +127,8 @@ export function NuevaCitaForm({ doctoras }: { doctoras: Doctora[] }) {
               <div>
                 <p className="text-sm font-medium text-foreground">{elegido.nombre}</p>
                 <p className="text-xs text-muted-foreground">
-                  DPI {elegido.numero_identificacion} · {elegido.telefono}
+                  {elegido.tipo_identificacion} {elegido.numero_identificacion} ·{" "}
+                  {elegido.telefono}
                   {elegido.email ? "" : " · sin correo"}
                 </p>
               </div>
@@ -141,7 +152,7 @@ export function NuevaCitaForm({ doctoras }: { doctoras: Doctora[] }) {
                   setQuery(e.target.value);
                   setBuscando(e.target.value.trim().length >= 2);
                 }}
-                placeholder="Nombre, apellido o DPI…"
+                placeholder="Nombre, apellido, DPI o pasaporte…"
                 autoComplete="off"
                 className={CAMPO}
               />
@@ -164,7 +175,7 @@ export function NuevaCitaForm({ doctoras }: { doctoras: Doctora[] }) {
                           >
                             <span className="block text-sm text-foreground">{p.nombre}</span>
                             <span className="block text-xs text-muted-foreground">
-                              DPI {p.numero_identificacion} · {p.telefono}
+                              {p.tipo_identificacion} {p.numero_identificacion} · {p.telefono}
                             </span>
                           </button>
                         </li>
@@ -183,7 +194,15 @@ export function NuevaCitaForm({ doctoras }: { doctoras: Doctora[] }) {
             <label className={ETIQUETA} htmlFor="nc-fecha">
               Fecha
             </label>
-            <input id="nc-fecha" name="fecha" type="date" required className={CAMPO} />
+            <input
+              id="nc-fecha"
+              name="fecha"
+              type="date"
+              required
+              value={fecha}
+              onChange={(e) => setFecha(e.target.value)}
+              className={CAMPO}
+            />
           </div>
           <div>
             <label className={ETIQUETA} htmlFor="nc-hora">
@@ -195,7 +214,8 @@ export function NuevaCitaForm({ doctoras }: { doctoras: Doctora[] }) {
               type="time"
               required
               step={900}
-              defaultValue="09:00"
+              value={hora}
+              onChange={(e) => setHora(e.target.value)}
               className={CAMPO}
             />
           </div>
@@ -203,10 +223,16 @@ export function NuevaCitaForm({ doctoras }: { doctoras: Doctora[] }) {
             <label className={ETIQUETA} htmlFor="nc-sede">
               Sede
             </label>
-            <select id="nc-sede" name="sede" className={CAMPO}>
+            <select
+              id="nc-sede"
+              name="sede"
+              value={sede}
+              onChange={(e) => setSede(e.target.value)}
+              className={CAMPO}
+            >
               {SEDES.map((s) => (
                 <option key={s} value={s}>
-                  {s}
+                  {nombreSedeCompleto(s)} — {diasCortosDeSede(s)}
                 </option>
               ))}
             </select>
@@ -224,6 +250,8 @@ export function NuevaCitaForm({ doctoras }: { doctoras: Doctora[] }) {
             </select>
           </div>
         </div>
+
+        <AvisoHorario fecha={fecha} hora={hora} sede={sede} />
 
         <div>
           <label className={ETIQUETA} htmlFor="nc-motivo">

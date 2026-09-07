@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { guardarConsulta, type CierreState, type Medicamento } from "@/app/actions";
+import { SelectorCie10 } from "@/components/dashboard/selector-cie10";
 
 const CAMPO =
   "w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm transition-colors focus:border-ring focus:outline-none";
@@ -11,6 +12,8 @@ const ETIQUETA = "mb-1.5 block text-[11px] font-medium uppercase tracking-wider 
 export type DatosConsulta = {
   id: string;
   diagnostico: string | null;
+  cie10: string | null;
+  cie10Descripcion: string | null;
   tratamiento: string | null;
   notas: string | null;
   notas_ampliadas: string | null;
@@ -85,6 +88,11 @@ export function CierreConsultaForm({
             />
           </div>
 
+          <SelectorCie10
+            codigoInicial={consulta.cie10}
+            descripcionInicial={consulta.cie10Descripcion}
+          />
+
           <div>
             <label className={ETIQUETA} htmlFor="tratamiento">
               Tratamiento indicado
@@ -149,7 +157,7 @@ export function CierreConsultaForm({
           <div>
             <h2 className="text-sm font-semibold text-foreground">Receta</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Los medicamentos van en el correo que recibe el paciente.
+              Los medicamentos y el código CIE-10 van en el correo que recibe el paciente.
             </p>
           </div>
           <button

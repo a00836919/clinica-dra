@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { format, differenceInYears } from "date-fns";
 import { es } from "date-fns/locale";
+import { etiquetaCie10 } from "@/lib/cie10";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Phone,
@@ -222,6 +223,15 @@ export default async function PacientePage({
               <InfoRow label="Profesión" value={paciente.profesion} />
               <InfoRow label="Dirección" value={paciente.direccion} />
               <InfoRow label="Teléfono alterno" value={paciente.telefono_alterno} />
+              <InfoRow
+                label="Consentimiento informado"
+                value={
+                  paciente.consentimiento_aceptado_en
+                    ? `Aceptado el ${format(new Date(paciente.consentimiento_aceptado_en), "d MMM yyyy", { locale: es })}` +
+                      (paciente.consentimiento_version ? ` · ${paciente.consentimiento_version}` : "")
+                    : "Pendiente"
+                }
+              />
             </div>
           </div>
 
@@ -354,12 +364,17 @@ export default async function PacientePage({
                           <p className="text-foreground/90">{c.motivo}</p>
                         </div>
                       )}
-                      {c.diagnostico && (
+                      {(c.diagnostico || c.diagnostico_cie10) && (
                         <div>
                           <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1">
                             Diagnóstico
                           </p>
-                          <p className="text-foreground/90">{c.diagnostico}</p>
+                          {c.diagnostico && <p className="text-foreground/90">{c.diagnostico}</p>}
+                          {c.diagnostico_cie10 && (
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              {etiquetaCie10(c.diagnostico_cie10, c.diagnostico_cie10_desc)}
+                            </p>
+                          )}
                         </div>
                       )}
                       {c.tratamiento && (

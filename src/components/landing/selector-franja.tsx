@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { franjasDisponibles } from "@/app/actions";
-import { HORARIO, esDiaAbierto } from "@/lib/disponibilidad";
+import { HORARIO, esDiaAbierto, horarioDeSede } from "@/lib/disponibilidad";
 
 /**
- * Mini calendario con las horas libres.
+ * Mini calendario con las horas libres de una sede.
  *
  * Se muestran también las franjas ocupadas, en gris y deshabilitadas: ver que
  * las 10:00 existe pero está tomada da más confianza que una lista donde esa
  * hora simplemente no aparece.
+ *
+ * Los días que se ofrecen son solo los que esa sede atiende: la doctora está en
+ * una sede distinta cada día, así que un calendario con los seis días abiertos
+ * prometía horas que no existen.
  */
 export function SelectorFranja({
   sede,
@@ -18,11 +22,9 @@ export function SelectorFranja({
   sede: string;
   onCambio: (valor: { fecha: string; hora: string } | null) => void;
 }) {
-  // Se calcula una sola vez al montar. Perezoso y no en un efecto: los días no
-  // dependen de nada reactivo, y marcar estado dentro de un efecto encadena
-  // renders. El cálculo usa la fecha del navegador, así que va aquí y no en el
-  // servidor, para no arriesgar un desajuste de hidratación.
-  const [dias] = useState<Date[]>(() => {
+  // El cálculo usa la fecha del navegador, así que va aquí y no en el servidor,
+  // para no arriesgar un desajuste de hidratación.
+  const dias = useMemo<Date[]>(() => {
     if (typeof window === "undefined") return [];
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
@@ -30,10 +32,13 @@ export function SelectorFranja({
     for (let i = 0; i < HORARIO.diasMaximosAdelante && lista.length < 42; i++) {
       const d = new Date(hoy);
       d.setDate(d.getDate() + i);
-      if (esDiaAbierto(d)) lista.push(d);
+      if (esDiaAbierto(d, sede)) lista.push(d);
     }
     return lista;
-  });
+  }, [sede]);
+
+  const horario = horarioDeSede(sede);
+
   const [fecha, setFecha] = useState<string | null>(null);
   const [hora, setHora] = useState<string | null>(null);
   const [franjas, setFranjas] = useState<{ hora: string; disponible: boolean }[]>([]);
@@ -73,6 +78,17 @@ export function SelectorFranja({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Horario de la sede: lo primero que hay que saber antes de elegir día */}
+      {horario.length > 0 && (
+        <div className="flex flex-col gap-1">
+          {horario.map((h) => (
+            <p key={`${h.etiquetaDias}-${h.desde}`} className="text-[11px] leading-relaxed text-white/60">
+              <span className="text-white/85">{h.etiquetaDias}</span> · {h.etiquetaHoras}
+            </p>
+          ))}
+        </div>
+      )}
+
       {/* Días */}
       <div>
         <div className="mb-2 flex items-center justify-between">
@@ -148,7 +164,7 @@ export function SelectorFranja({
             <p className="text-[12px] text-white/50">Consultando disponibilidad…</p>
           ) : franjas.length === 0 ? (
             <p className="text-[12px] text-white/60">
-              Ese día no hay atención. Elige otro.
+              Ese día no hay atención en {sede}. Elige otro.
             </p>
           ) : (
             <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
