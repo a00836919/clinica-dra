@@ -2,7 +2,8 @@ import Image from "next/image";
 import recepcion from "@/assets/fotos/recepcion.jpg";
 import { nombreSedeCompleto } from "@/lib/sedes";
 import { horarioPublicado } from "@/lib/disponibilidad";
-import { PRECIO_CONSULTA_TEXTO } from "@/lib/precios";
+import { WHATSAPP_URL } from "@/lib/contacto";
+import { IconoWhatsApp } from "./icono-whatsapp";
 
 /**
  * Escenario fotográfico de apertura: la foto de la recepción ocupa el viewport,
@@ -93,7 +94,7 @@ export function Hero() {
                 style={{ background: "oklch(0.82 0.08 78)" }}
               />
               <p className="on-photo text-[10px] font-medium uppercase tracking-[0.3em] text-white/70">
-                Dermatología · Estética avanzada · Guatemala
+                Dermatología · Guatemala
               </p>
             </div>
 
@@ -128,12 +129,22 @@ export function Hero() {
                 className="btn-fill inline-flex h-12 items-center rounded-full px-7 text-[13px] font-medium tracking-wide text-[oklch(0.28_0.03_35)]"
                 style={{ background: "white" }}
               >
-                Solicitar cita →
+                Agenda tu cita →
+              </a>
+              {/* Para quien prefiere escribir antes que llenar un formulario */}
+              <a
+                href={WHATSAPP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-magnetic
+                className="inline-flex h-12 items-center gap-2.5 rounded-full border border-white/40 px-7 text-[13px] font-medium tracking-wide text-white/90 transition-colors hover:border-white hover:text-white"
+              >
+                <IconoWhatsApp className="h-[15px] w-[15px]" />
+                Escríbenos por WhatsApp
               </a>
               <a
                 href="#mis-citas"
-                data-magnetic
-                className="inline-flex h-12 items-center rounded-full border border-white/40 px-7 text-[13px] font-medium tracking-wide text-white/85 transition-colors hover:border-white hover:text-white"
+                className="inline-flex h-12 items-center px-2 text-[13px] font-medium tracking-wide text-white/70 underline decoration-white/30 underline-offset-[6px] transition-colors hover:text-white hover:decoration-white/70"
               >
                 Mis citas
               </a>
@@ -161,9 +172,6 @@ export function Hero() {
                 </li>
               ))}
             </ul>
-            <p className="mt-5 border-t border-white/15 pt-4 text-[11px] leading-relaxed text-white/60">
-              Consulta {PRECIO_CONSULTA_TEXTO}. El procedimiento que se realice se cobra aparte.
-            </p>
           </div>
         </div>
       </div>

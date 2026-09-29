@@ -6,7 +6,6 @@ import { Tecnologia } from "@/components/landing/tecnologia";
 import { CinematicMotion } from "@/components/motion/cinematic-motion";
 import { nombreSedeCompleto } from "@/lib/sedes";
 import { horarioPublicado } from "@/lib/disponibilidad";
-import { ACLARACION_PRECIO_CORTA, PRECIO_CONSULTA_TEXTO } from "@/lib/precios";
 
 export default function LandingPage() {
   return (
@@ -36,7 +35,7 @@ export default function LandingPage() {
             El equipo
           </a>
           <a href="#cita" className="nav-link hidden text-[12px] tracking-wide sm:inline">
-            Solicitar cita
+            Agenda tu cita
           </a>
           <a
             href="#mis-citas"
@@ -60,7 +59,7 @@ export default function LandingPage() {
                 data-reveal="fade-up"
                 className="mb-4 text-[10px] font-medium uppercase tracking-[0.25em] text-white/60"
               >
-                Solicitar cita
+                Citas
               </p>
               <h2
                 data-motion-text
@@ -71,7 +70,7 @@ export default function LandingPage() {
                   fontWeight: 500,
                 }}
               >
-                Tu primera cita nos cuenta todo.
+                Agenda tu cita.
               </h2>
               <p
                 data-reveal="fade-up"
@@ -98,15 +97,6 @@ export default function LandingPage() {
                     </div>
                   </div>
                 ))}
-              </div>
-
-              <div className="mt-8 border-t border-white/20 pt-5">
-                <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-white/60">
-                  Consulta {PRECIO_CONSULTA_TEXTO}
-                </p>
-                <p className="mt-2 max-w-[32ch] text-[12px] leading-[1.7] text-white/60">
-                  {ACLARACION_PRECIO_CORTA}
-                </p>
               </div>
             </div>
 

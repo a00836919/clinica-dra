@@ -10,7 +10,6 @@ import {
 import { SEDES, nombreSedeCompleto } from "@/lib/sedes";
 import { diasCortosDeSede } from "@/lib/disponibilidad";
 import { SelectorFranja } from "@/components/landing/selector-franja";
-import { ACLARACION_PRECIO, PRECIO_CONSULTA_TEXTO } from "@/lib/precios";
 import { RESUMEN_CONSENTIMIENTO } from "@/lib/consentimiento";
 import {
   PLACEHOLDER_IDENTIFICACION,
@@ -90,8 +89,7 @@ export function SolicitudForm() {
             : "Te contactamos en menos de 24 horas para confirmar tu cita. Lo haremos por teléfono, así que mantente pendiente."}
         </p>
         <p className="text-[12px] text-white/55 leading-relaxed mb-5">
-          La consulta cuesta {PRECIO_CONSULTA_TEXTO}. El procedimiento que se te realice se cobra
-          aparte. Lleva tu {nombreEnFrase(tipo)} el día de la cita.
+          Lleva tu {nombreEnFrase(tipo)} el día de la cita.
         </p>
         <a
           href="/mis-citas"
@@ -278,14 +276,6 @@ export function SolicitudForm() {
           Si no eliges día y hora, te contactamos para acordarlos.
         </p>
       )}
-
-      {/* Precio: la duda que llega por teléfono todos los días */}
-      <div className="rounded-xl bg-white/10 px-5 py-4">
-        <p className="text-[10px] tracking-wider uppercase text-white/60 font-medium mb-1.5">
-          Costo · consulta {PRECIO_CONSULTA_TEXTO}
-        </p>
-        <p className="text-[12px] leading-relaxed text-white/70">{ACLARACION_PRECIO}</p>
-      </div>
 
       <label className="flex items-start gap-3 text-[12px] leading-relaxed text-white/70">
         <input

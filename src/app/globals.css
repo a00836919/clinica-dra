@@ -365,3 +365,33 @@ html.has-motion [data-image-reveal] {
 .on-photo {
   text-shadow: 0 1px 14px rgba(20, 14, 11, 0.85), 0 0 42px rgba(20, 14, 11, 0.55);
 }
+
+/* Pista de carrusel: se desplaza, pero sin barra visible. */
+.sin-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.sin-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Marco de foto de la galería: la imagen entra apagada y se aviva al pasar
+   el cursor, sin mover el encuadre. */
+.foto-marco img {
+  filter: brightness(0.82) saturate(0.94);
+  transition: filter 600ms var(--ease-out-expo);
+}
+@media (hover: hover) {
+  .foto-marco:hover img {
+    filter: brightness(1) saturate(1);
+  }
+}
+
+/* Galería de la clínica: en escritorio el panel mide una pantalla, así que el
+   ancho de cada tarjeta se deduce del alto disponible (la resta cubre el
+   encabezado, el número, el pie y la barra de avance). */
+@media (min-width: 768px) {
+  .tarjeta-galeria {
+    width: clamp(12rem, (100vh - 17rem) * 0.8, 30rem);
+  }
+}
