@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { reprogramarConsulta, cambiarEstadoConsulta } from "@/app/actions";
+import { enGuatemala } from "@/lib/hora-guatemala";
 
 const CAMPO =
   "rounded-md border border-border/60 bg-background px-2 py-1 text-xs transition-colors focus:border-ring focus:outline-none";
@@ -24,8 +25,8 @@ export function ControlesConsulta({
   const [pending, start] = useTransition();
   const router = useRouter();
 
-  const fecha = fechaISO.slice(0, 10);
-  const hora = new Date(fechaISO).toTimeString().slice(0, 5);
+  // En hora de Guatemala: cortar el ISO daba el día UTC, uno después para las citas de la noche.
+  const { fecha, hora } = enGuatemala(fechaISO);
 
   function mover(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

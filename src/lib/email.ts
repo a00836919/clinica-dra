@@ -176,14 +176,18 @@ function explicarFallo(err: unknown): string {
   return texto;
 }
 
+export type Adjunto = { filename: string; content: Uint8Array; contentType: string };
+
 async function enviar({
   to,
   subject,
   html,
+  adjuntos,
 }: {
   to: string;
   subject: string;
   html: string;
+  adjuntos?: Adjunto[];
 }): Promise<ResultadoEmail> {
   const t = obtenerTransporte();
   if (!t) {
@@ -202,6 +206,11 @@ async function enviar({
       replyTo: process.env.EMAIL_REPLY_TO || user,
       subject,
       html,
+      attachments: adjuntos?.map((a) => ({
+        filename: a.filename,
+        content: Buffer.from(a.content),
+        contentType: a.contentType,
+      })),
     });
 
     console.log(`[email] "${subject}" → ${ofuscar(to)} enviado (${info.messageId})`);
@@ -300,6 +309,36 @@ export async function enviarConfirmacionAprobacion({
   return enviar({ to, subject: "Tu cita está confirmada — Skin Clinic GT", html });
 }
 
+// ── 2b. Cita reprogramada ────────────────────────────────────────────────────
+// Antes se reusaba la confirmación, y un "¡Tu cita está confirmada!" no le dice
+// al paciente que lo que cambió fue el día: llega a la hora vieja.
+
+export async function enviarCitaReprogramada({
+  to,
+  nombre,
+  fechaPreferida,
+  hora,
+  sede,
+}: CitaEmail) {
+  const html = shell({
+    titulo: "Tu cita cambió de fecha",
+    cuerpo: `
+          ${saludo(`Hola <strong>${esc(nombre)}</strong>, movimos tu cita en Skin Clinic GT.
+            Estos son los datos nuevos:`)}
+
+          ${datosBox([
+            ["Fecha", fechaLarga(fechaPreferida)],
+            ["Hora", hora],
+            ["Sede", sedeVisible(sede)],
+          ])}
+
+          ${nota(`Si el nuevo horario no te queda, escríbenos o entra a <strong>Mis citas</strong>
+            en nuestro sitio con tu identificación y fecha de nacimiento.`)}`,
+  });
+
+  return enviar({ to, subject: "Tu cita cambió de fecha — Skin Clinic GT", html });
+}
+
 // ── 3. Cita cancelada ─────────────────────────────────────────────────────────
 
 export async function enviarConfirmacionCancelacion({
@@ -357,6 +396,7 @@ export async function enviarRecetaEmail({
   tratamiento,
   notas,
   medicamentos,
+  receta,
 }: {
   to: string;
   pacienteNombre: string;
@@ -369,6 +409,8 @@ export async function enviarRecetaEmail({
   tratamiento?: string | null;
   notas?: string | null;
   medicamentos?: Medicamento[] | null;
+  /** La receta en PDF con membrete, firma y sello. */
+  receta?: Adjunto | null;
 }) {
   const fechaStr = fechaLarga(fechaConsulta)!;
 
@@ -410,10 +452,22 @@ export async function enviarRecetaEmail({
             ${medicamentosHtml}
           </div>
 
+          ${
+            receta
+              ? nota(`Adjuntamos tu <strong>receta en PDF</strong> con el membrete de la clínica.
+            Puedes imprimirla o mostrarla desde el teléfono en la farmacia.`) + "<br/>"
+              : ""
+          }
+
           ${nota(`Si tienes dudas sobre tu tratamiento, contáctanos respondiendo este correo o
             llámanos directamente. Recuerda seguir las indicaciones de tu doctora al pie de la letra.`)}`,
     footerNota: "Este correo es generado automáticamente, por favor no responder.",
   });
 
-  return enviar({ to, subject: `Tu consulta del ${fechaStr} — Skin Clinic GT`, html });
+  return enviar({
+    to,
+    subject: `Tu consulta del ${fechaStr} — Skin Clinic GT`,
+    html,
+    adjuntos: receta ? [receta] : undefined,
+  });
 }

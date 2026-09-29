@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { format, parseISO, startOfDay, endOfDay } from "date-fns";
 import { es } from "date-fns/locale";
@@ -233,8 +234,9 @@ export default async function DashboardPage() {
               const hora = format(new Date(c.fecha), "HH:mm");
 
               return (
-                <div
+                <Link
                   key={c.id}
+                  href={`/dashboard/consultas/${c.id}`}
                   className="flex items-center gap-4 px-4 py-3 rounded-xl border border-border/60 bg-card hover:bg-accent/30 transition-colors"
                 >
                   {/* Hora */}
@@ -274,7 +276,7 @@ export default async function DashboardPage() {
                   >
                     {estado.label}
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>

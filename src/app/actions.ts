@@ -7,9 +7,15 @@ import {
   enviarConfirmacionSolicitud,
   enviarConfirmacionAprobacion,
   enviarConfirmacionCancelacion,
+  enviarCitaReprogramada,
+  type Adjunto,
 } from "@/lib/email";
+import { generarRecetaPdf, nombreArchivoReceta } from "@/lib/receta-pdf";
+import { instanteGuatemala } from "@/lib/hora-guatemala";
+import { SEDES } from "@/lib/sedes";
 import { setPortalCookie, clearPortalCookie, getPortalPatientId } from "@/lib/portal-session";
 import { redirect } from "next/navigation";
+import { refresh } from "next/cache";
 import { headers } from "next/headers";
 import { parseISO } from "date-fns";
 import { calcularFranjas, esDiaAbierto, franjasDelDia, HORARIO } from "@/lib/disponibilidad";
@@ -644,17 +650,45 @@ export async function guardarConsulta(
     .eq("id", doctoraId)
     .maybeSingle();
 
+  const pacienteNombre = `${paciente.primer_nombre} ${paciente.primer_apellido}`;
+  const cie10Etiqueta = etiquetaCie10(cie10, cie10Descripcion);
+
+  // Sin medicamentos no hay receta que adjuntar: el correo va solo con el resumen.
+  // Si el PDF falla, el resumen sale igual; la receta se puede reimprimir.
+  let receta: Adjunto | null = null;
+  if (medicamentos.length) {
+    try {
+      receta = {
+        filename: nombreArchivoReceta(pacienteNombre, consulta.fecha),
+        contentType: "application/pdf",
+        content: await generarRecetaPdf({
+          paciente: pacienteNombre,
+          fecha: consulta.fecha,
+          doctora: doctora?.nombre_completo ?? doctora?.nombre_agenda ?? null,
+          diagnostico: texto("diagnostico"),
+          cie10: cie10Etiqueta,
+          medicamentos,
+          indicaciones: texto("tratamiento"),
+          proximoControl: texto("proxima_control"),
+        }),
+      };
+    } catch (err) {
+      console.error("[receta] no se pudo generar el PDF:", err);
+    }
+  }
+
   const envio = await enviarRecetaEmail({
     to: paciente.email,
-    pacienteNombre: `${paciente.primer_nombre} ${paciente.primer_apellido}`,
+    pacienteNombre,
     fechaConsulta: consulta.fecha,
     doctoraNombre: doctora?.nombre_agenda ?? doctora?.nombre_completo ?? "Skin Clinic GT",
     sede: consulta.sede,
     diagnostico: texto("diagnostico"),
-    cie10: etiquetaCie10(cie10, cie10Descripcion),
+    cie10: cie10Etiqueta,
     tratamiento: texto("tratamiento"),
     notas: texto("notas"),
     medicamentos,
+    receta,
   });
 
   if (envio.ok) {
@@ -801,21 +835,48 @@ export async function crearCita(datos: {
   return { consultaId: creada.id };
 }
 
-/** Mueve una cita de fecha u hora y, si se pide, vuelve a avisar al paciente. */
+/**
+ * Mueve una cita de fecha u hora y, si se pide, vuelve a avisar al paciente.
+ *
+ * La usan el formulario de la consulta y el arrastre de la agenda. La hora es
+ * de Guatemala aunque el servidor corra en otra zona. Con `sede` se cambia
+ * también la sede, para cuando la cita cae en un día que se atiende en otra.
+ */
 export async function reprogramarConsulta(
   consultaId: string,
-  datos: { fecha: string; hora: string; avisarPorCorreo: boolean },
+  datos: { fecha: string; hora: string; sede?: string; avisarPorCorreo: boolean },
 ): Promise<{ error?: string; aviso?: string }> {
   const sesion = await sesionStaff();
   if (!sesion) return { error: "Tu sesión expiró. Vuelve a entrar." };
   const { supabase } = sesion;
 
-  const cuando = new Date(`${datos.fecha}T${datos.hora}`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datos.fecha) || !/^\d{2}:\d{2}$/.test(datos.hora)) {
+    return { error: "La fecha o la hora no son válidas." };
+  }
+  const cuando = instanteGuatemala(datos.fecha, datos.hora);
   if (Number.isNaN(cuando.getTime())) return { error: "La fecha o la hora no son válidas." };
+
+  if (datos.sede && !(SEDES as readonly string[]).includes(datos.sede)) {
+    return { error: "Esa sede no existe." };
+  }
+
+  const { data: actual } = await supabase
+    .from("consultas")
+    .select("estado")
+    .eq("id", consultaId)
+    .maybeSingle();
+
+  if (!actual) return { error: "No encontramos esa cita." };
+  // Moverla la devolvería a "agendada" y se perdería que ya se atendió.
+  if (actual.estado === "atendida") return { error: "Una cita ya atendida no se puede mover." };
 
   const { data: consulta, error } = await supabase
     .from("consultas")
-    .update({ fecha: cuando.toISOString(), estado: "agendada" })
+    .update({
+      fecha: cuando.toISOString(),
+      estado: "agendada",
+      ...(datos.sede ? { sede: datos.sede } : {}),
+    })
     .eq("id", consultaId)
     .select(
       `sede, paciente:pacientes!consultas_paciente_id_fkey(primer_nombre, primer_apellido, email)`,
@@ -827,6 +888,10 @@ export async function reprogramarConsulta(
     return { error: conDetalle("No se pudo mover la cita.", error) };
   }
 
+  // La agenda recibe los datos nuevos en la misma respuesta: sin esto, la
+  // ficha arrastrada vuelve un instante a su lugar viejo antes de refrescar.
+  refresh();
+
   const paciente = (Array.isArray(consulta.paciente) ? consulta.paciente[0] : consulta.paciente) as {
     primer_nombre: string;
     primer_apellido: string;
@@ -836,7 +901,7 @@ export async function reprogramarConsulta(
   if (!datos.avisarPorCorreo) return {};
   if (!paciente?.email) return { aviso: "Cita movida. El paciente no tiene correo registrado." };
 
-  const envio = await enviarConfirmacionAprobacion({
+  const envio = await enviarCitaReprogramada({
     to: paciente.email,
     nombre: `${paciente.primer_nombre} ${paciente.primer_apellido}`,
     fechaPreferida: cuando.toISOString(),

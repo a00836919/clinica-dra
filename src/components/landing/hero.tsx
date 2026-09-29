@@ -6,128 +6,58 @@ import { WHATSAPP_URL } from "@/lib/contacto";
 import { IconoWhatsApp } from "./icono-whatsapp";
 
 /**
- * Escenario fotográfico de apertura: la foto de la recepción ocupa el viewport,
- * el contenido se ancla abajo a la izquierda y los rieles verticales le dan
- * estructura sin tapar la imagen.
+ * Apertura editorial sobre el crema del sitio.
+ *
+ * Antes la foto de la recepción ocupaba la pantalla bajo cuatro capas de velo
+ * oscuro: la pared clara y el rótulo dorado quedaban turbios y el hero no se
+ * parecía al resto de la página. Ahora la foto va enmarcada y a su brillo real,
+ * y el texto vive sobre el mismo fondo que las demás secciones.
  */
 export function Hero() {
   return (
-    <section
-      data-hero-sentinel
-      data-parallax-section
-      className="relative flex min-h-[100svh] flex-col justify-end overflow-hidden"
-    >
-      {/* Capa fotográfica, con sobremedida vertical para el parallax */}
-      <div
-        data-parallax-image
-        data-parallax-speed="0.07"
-        className="absolute inset-x-0 -top-[9%] -bottom-[9%]"
-      >
-        <div data-hero-image className="relative h-full w-full">
-          <Image
-            src={recepcion}
-            alt="Recepción de Skin Clinic GT: el rótulo dorado de la clínica iluminado sobre una pared clara, con plantas en primer plano."
-            fill
-            priority
-            placeholder="blur"
-            sizes="100vw"
-            className="object-cover object-center"
-          />
-        </div>
-      </div>
-
-      {/* Velo superior: el nav es blanco y la pared de la foto es clara */}
-      <div
-        aria-hidden="true"
-        className="absolute inset-x-0 top-0 h-40"
-        style={{ background: "linear-gradient(to bottom, rgba(20,14,11,0.62), transparent)" }}
-      />
-
-      {/* Lavados direccionales para que el texto se lea sin aplanar la foto */}
-      <div
-        aria-hidden="true"
-        className="absolute inset-0"
-        style={{
-          background:
-            "linear-gradient(100deg, rgba(20,14,11,0.90) 0%, rgba(20,14,11,0.62) 38%, rgba(20,14,11,0.18) 72%, rgba(20,14,11,0.04) 100%)",
-        }}
-      />
-      <div
-        aria-hidden="true"
-        className="absolute inset-x-0 bottom-0 h-[78%]"
-        style={{
-          background:
-            "linear-gradient(to top, rgba(20,14,11,0.95) 0%, rgba(20,14,11,0.72) 30%, transparent 100%)",
-        }}
-      />
-      {/* Poza de sombra bajo el titular: el rótulo de la pared no debe competir.
-          Se abre bastante porque en móvil el texto cae justo sobre las letras. */}
-      <div
-        aria-hidden="true"
-        className="absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(140% 90% at 10% 88%, rgba(20,14,11,0.78) 0%, rgba(20,14,11,0.30) 50%, transparent 78%)",
-        }}
-      />
-
-      {/* Rieles y marcadores */}
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-        <div className="relative mx-auto h-full w-full max-w-6xl px-6 md:px-10">
-          <div className="stage-rail left-6 md:left-10" />
-          <div className="stage-rail right-6 md:right-10" />
-          <div className="stage-marker left-6 top-24 -translate-x-[2px] md:left-10" />
-          <div className="stage-marker right-6 top-24 translate-x-[2px] md:right-10" />
-          <div className="stage-marker left-6 bottom-16 -translate-x-[2px] md:left-10" />
-          <div className="stage-marker right-6 bottom-16 translate-x-[2px] md:right-10" />
-        </div>
-      </div>
-
-      {/* Contenido anclado abajo */}
-      <div className="relative mx-auto w-full max-w-6xl px-6 pb-16 pt-40 md:px-10 md:pb-24">
-        <div className="grid items-end gap-10 md:grid-cols-[1.55fr_1fr]">
-          <div>
-            <div data-hero-step className="mb-6 flex items-center gap-4">
+    <section data-parallax-section className="px-6 pb-14 pt-28 md:px-10 md:pb-16 md:pt-32">
+      <div className="mx-auto max-w-6xl">
+        <div className="grid items-end gap-10 md:grid-cols-[1fr_1.05fr] md:gap-16">
+          <div className="md:pb-2">
+            <div data-hero-step className="mb-7 flex items-center gap-4">
               <span
                 aria-hidden="true"
-                className="hidden h-px w-10 flex-shrink-0 sm:block"
+                className="h-px w-10 flex-shrink-0"
                 style={{ background: "oklch(0.82 0.08 78)" }}
               />
-              <p className="on-photo text-[10px] font-medium uppercase tracking-[0.3em] text-white/70">
+              <p className="text-[10px] font-medium uppercase tracking-[0.3em] text-[oklch(0.62_0.07_25)]">
                 Dermatología · Guatemala
               </p>
             </div>
 
             <h1
               data-hero-step
-              className="on-photo mb-6 max-w-[14ch] text-white"
+              className="mb-7 text-[oklch(0.22_0.02_40)]"
               style={{
                 fontFamily: "var(--font-playfair)",
-                fontSize: "clamp(2.5rem,5.6vw,4.4rem)",
-                lineHeight: 1.05,
+                fontSize: "clamp(3rem,7.2vw,5.8rem)",
+                lineHeight: 0.98,
                 fontWeight: 500,
+                letterSpacing: "-0.01em",
               }}
             >
-              {/* Jerarquía por tono, no por color: el dorado se lo queda la foto */}
-              <span className="text-white/65">Bienvenidos a</span>
-              <br />
-              <span className="italic">Skin Clinic GT</span>
+              Skin Clinic <span className="italic text-[oklch(0.66_0.075_25)]">GT</span>
             </h1>
 
             <p
               data-hero-step
-              className="on-photo mb-9 max-w-[42ch] text-[14px] leading-relaxed text-white/85"
+              className="mb-9 max-w-[40ch] text-[15px] leading-[1.75] text-[oklch(0.45_0.015_40)]"
             >
-              Solicita tu cita en línea o ingresa con tu DPI o pasaporte para ver el historial
-              de tus consultas, diagnósticos y recetas.
+              Dermatólogas dedicadas al cuidado de la piel, el cabello y las uñas, para
+              pacientes de todas las edades.
             </p>
 
-            <div data-hero-step className="flex flex-wrap items-center gap-3">
+            <div data-hero-step className="flex flex-wrap items-center gap-x-7 gap-y-4">
               <a
                 href="#cita"
                 data-magnetic
-                className="btn-fill inline-flex h-12 items-center rounded-full px-7 text-[13px] font-medium tracking-wide text-[oklch(0.28_0.03_35)]"
-                style={{ background: "white" }}
+                className="btn-fill inline-flex h-12 items-center rounded-full px-7 text-[13px] font-medium tracking-wide text-white"
+                style={{ background: "oklch(0.3 0.025 35)" }}
               >
                 Agenda tu cita →
               </a>
@@ -136,43 +66,59 @@ export function Hero() {
                 href={WHATSAPP_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                data-magnetic
-                className="inline-flex h-12 items-center gap-2.5 rounded-full border border-white/40 px-7 text-[13px] font-medium tracking-wide text-white/90 transition-colors hover:border-white hover:text-white"
+                className="inline-flex items-center gap-2.5 text-[13px] font-medium tracking-wide text-[oklch(0.4_0.02_40)] underline decoration-[oklch(0.85_0.02_40)] underline-offset-[6px] transition-colors hover:text-[oklch(0.25_0.02_40)] hover:decoration-[oklch(0.62_0.07_25)]"
               >
                 <IconoWhatsApp className="h-[15px] w-[15px]" />
                 Escríbenos por WhatsApp
               </a>
-              <a
-                href="#mis-citas"
-                className="inline-flex h-12 items-center px-2 text-[13px] font-medium tracking-wide text-white/70 underline decoration-white/30 underline-offset-[6px] transition-colors hover:text-white hover:decoration-white/70"
-              >
-                Mis citas
-              </a>
             </div>
           </div>
 
-          {/* Carril secundario: sedes */}
-          <div
+          {/* La recepción, a su brillo real: la pared clara y el dorado son la marca */}
+          <figure
             data-hero-step
-            className="rounded-2xl border border-white/15 bg-white/[0.07] p-6 backdrop-blur-[2px] md:justify-self-end md:w-full"
+            className="relative aspect-[4/5] w-full overflow-hidden rounded-[1.75rem] md:aspect-auto md:h-[min(64vh,40rem)]"
           >
-            <p className="mb-4 text-[10px] font-medium uppercase tracking-[0.25em] text-white/55">
-              Días de consulta
-            </p>
-            <ul className="flex flex-col gap-3.5">
-              {horarioPublicado().map((h) => (
-                <li key={`${h.sede}-${h.desde}-${h.etiquetaDias}`} className="flex gap-2.5">
-                  <span className="mt-[7px] h-1 w-1 flex-shrink-0 rounded-full bg-white/45" />
-                  <span className="flex flex-col leading-tight">
-                    <span className="text-[13px] text-white/85">{h.etiquetaDias}</span>
-                    <span className="text-[11px] text-white/55">
-                      {nombreSedeCompleto(h.sede)} · {h.etiquetaHoras}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
+            <div
+              data-parallax-image
+              data-parallax-speed="0.05"
+              className="absolute inset-x-0 -top-[8%] -bottom-[8%]"
+            >
+              <div data-hero-image className="relative h-full w-full">
+                <Image
+                  src={recepcion}
+                  alt="Recepción de Skin Clinic GT: el rótulo dorado de la clínica iluminado sobre una pared clara, con plantas en primer plano."
+                  fill
+                  priority
+                  placeholder="blur"
+                  sizes="(max-width: 768px) 100vw, 52vw"
+                  className="object-cover object-[46%_50%]"
+                />
+              </div>
+            </div>
+          </figure>
+        </div>
+
+        {/* Días de consulta: una franja, no una tarjeta */}
+        <div
+          data-hero-step
+          className="mt-12 grid gap-x-8 gap-y-6 border-t border-[oklch(0.91_0.008_60)] pt-7 sm:grid-cols-2 md:mt-14 md:grid-cols-[auto_repeat(4,1fr)]"
+        >
+          <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-[oklch(0.62_0.07_25)] sm:col-span-2 md:col-span-1 md:pr-6 md:pt-1">
+            Días de consulta
+          </p>
+          {horarioPublicado().map((h) => (
+            <div key={`${h.sede}-${h.desde}-${h.etiquetaDias}`} className="leading-snug">
+              <p
+                className="text-[16px] text-[oklch(0.25_0.02_40)]"
+                style={{ fontFamily: "var(--font-playfair)", fontWeight: 500 }}
+              >
+                {h.etiquetaDias}
+              </p>
+              <p className="mt-1 text-[12px] text-[oklch(0.52_0.012_40)]">{nombreSedeCompleto(h.sede)}</p>
+              <p className="text-[12px] tabular-nums text-[oklch(0.52_0.012_40)]">{h.etiquetaHoras}</p>
+            </div>
+          ))}
         </div>
       </div>
     </section>

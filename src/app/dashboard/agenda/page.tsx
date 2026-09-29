@@ -10,14 +10,17 @@ import {
   addWeeks,
   addMonths,
   eachDayOfInterval,
-  isSameDay,
-  isSameMonth,
   parseISO,
   isValid,
 } from "date-fns";
 import { es } from "date-fns/locale";
-import { estadoConsulta, ESTADOS_CERRADOS } from "@/lib/estados";
 import { NuevaCitaForm } from "@/components/dashboard/nueva-cita-form";
+import {
+  AgendaArrastrable,
+  type BloqueoAgenda,
+  type CitaAgenda,
+} from "@/components/dashboard/agenda-arrastrable";
+import { enGuatemala } from "@/lib/hora-guatemala";
 
 type Vista = "semana" | "mes";
 
@@ -27,7 +30,8 @@ type ConsultaAgenda = {
   motivo: string | null;
   estado: string;
   sede: string;
-  paciente: { primer_nombre: string; primer_apellido: string } | null;
+  doctora_id: string | null;
+  paciente: { primer_nombre: string; primer_apellido: string; email: string | null } | null;
   /** Las citas importadas no tienen expediente: el nombre viene suelto. */
   paciente_nombre: string | null;
 };
@@ -71,16 +75,25 @@ export default async function AgendaPage({
   const { desde, hasta } = rango(vista, ancla);
   const hoy = new Date();
 
+  // Un día de holgura a cada lado: el rango se arma en la zona del servidor y
+  // la grilla filtra después por el día de Guatemala.
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("consultas")
-    .select(
-      `id, fecha, motivo, estado, sede, paciente_nombre,
-       paciente:pacientes!consultas_paciente_id_fkey(primer_nombre, primer_apellido)`,
-    )
-    .gte("fecha", desde.toISOString())
-    .lte("fecha", addDays(hasta, 1).toISOString())
-    .order("fecha", { ascending: true });
+  const [{ data }, { data: filasBloqueo }] = await Promise.all([
+    supabase
+      .from("consultas")
+      .select(
+        `id, fecha, motivo, estado, sede, doctora_id, paciente_nombre,
+         paciente:pacientes!consultas_paciente_id_fkey(primer_nombre, primer_apellido, email)`,
+      )
+      .gte("fecha", addDays(desde, -1).toISOString())
+      .lte("fecha", addDays(hasta, 2).toISOString())
+      .order("fecha", { ascending: true }),
+    supabase
+      .from("bloqueos_agenda")
+      .select("id, desde, hasta, sede, doctora_id, motivo")
+      .lt("desde", addDays(hasta, 2).toISOString())
+      .gt("hasta", addDays(desde, -1).toISOString()),
+  ]);
 
   const { data: staff } = await supabase
     .from("staff")
@@ -99,8 +112,28 @@ export default async function AgendaPage({
     paciente: (Array.isArray(c.paciente) ? c.paciente[0] : c.paciente) ?? null,
   })) as ConsultaAgenda[];
 
-  const dias = eachDayOfInterval({ start: desde, end: hasta });
-  const delDia = (dia: Date) => consultas.filter((c) => isSameDay(new Date(c.fecha), dia));
+  const dias = eachDayOfInterval({ start: desde, end: hasta }).map((d) => format(d, "yyyy-MM-dd"));
+  const enPeriodo = consultas.filter((c) => dias.includes(enGuatemala(c.fecha).fecha));
+
+  const citas: CitaAgenda[] = consultas.map((c) => ({
+    id: c.id,
+    fecha: c.fecha,
+    motivo: c.motivo,
+    estado: c.estado,
+    sede: c.sede,
+    doctoraId: c.doctora_id,
+    nombre: nombrePaciente(c),
+    tieneCorreo: Boolean(c.paciente?.email),
+  }));
+
+  const bloqueos: BloqueoAgenda[] = (filasBloqueo ?? []).map((b) => ({
+    id: b.id,
+    desde: b.desde,
+    hasta: b.hasta,
+    sede: b.sede,
+    doctoraId: b.doctora_id,
+    motivo: b.motivo,
+  }));
 
   const anterior = vista === "mes" ? addMonths(ancla, -1) : addWeeks(ancla, -1);
   const siguiente = vista === "mes" ? addMonths(ancla, 1) : addWeeks(ancla, 1);
@@ -118,7 +151,7 @@ export default async function AgendaPage({
           <h1 className="text-2xl font-semibold text-foreground">Agenda</h1>
           <p className="mt-0.5 text-sm capitalize text-muted-foreground">{titulo}</p>
           <p className="mt-0.5 text-xs text-muted-foreground/70">
-            {consultas.length} cita{consultas.length !== 1 ? "s" : ""} en el período
+            {enPeriodo.length} cita{enPeriodo.length !== 1 ? "s" : ""} en el período
           </p>
         </div>
 
@@ -171,214 +204,14 @@ export default async function AgendaPage({
         <NuevaCitaForm doctoras={doctoras} />
       </div>
 
-      {vista === "semana" ? (
-        <VistaSemana dias={dias} hoy={hoy} delDia={delDia} />
-      ) : (
-        <VistaMes dias={dias} hoy={hoy} ancla={ancla} delDia={delDia} />
-      )}
-    </div>
-  );
-}
-
-// ── Semana: siete columnas con la ficha completa de cada cita ────────────────
-
-function VistaSemana({
-  dias,
-  hoy,
-  delDia,
-}: {
-  dias: Date[];
-  hoy: Date;
-  delDia: (d: Date) => ConsultaAgenda[];
-}) {
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-      {dias.map((dia) => {
-        const citas = delDia(dia);
-        const esHoy = isSameDay(dia, hoy);
-
-        return (
-          <div key={dia.toISOString()} className="flex flex-col gap-2">
-            <div
-              className={`rounded-lg px-3 py-2 text-center ${esHoy ? "text-white" : "bg-muted/50 text-foreground"}`}
-              style={esHoy ? { background: "oklch(0.72 0.065 25)" } : undefined}
-            >
-              <p className="text-[10px] font-medium uppercase tracking-wider opacity-80">
-                {format(dia, "EEE", { locale: es })}
-              </p>
-              <p className="text-lg font-bold leading-tight">{format(dia, "d")}</p>
-              {citas.length > 0 && (
-                <p className="mt-0.5 text-[10px] opacity-70">
-                  {citas.length} cita{citas.length !== 1 ? "s" : ""}
-                </p>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              {citas.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border/50 py-4 text-center">
-                  <p className="text-[10px] text-muted-foreground/50">Sin citas</p>
-                </div>
-              ) : (
-                citas.map((c) => <TarjetaCita key={c.id} consulta={c} />)
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Mes: grilla compacta, la ficha completa se abre al entrar a la consulta ──
-
-function VistaMes({
-  dias,
-  hoy,
-  ancla,
-  delDia,
-}: {
-  dias: Date[];
-  hoy: Date;
-  ancla: Date;
-  delDia: (d: Date) => ConsultaAgenda[];
-}) {
-  const encabezados = dias.slice(0, 7);
-
-  return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[720px]">
-        <div className="mb-1 grid grid-cols-7 gap-1.5">
-          {encabezados.map((d) => (
-            <p
-              key={d.toISOString()}
-              className="py-1 text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
-            >
-              {format(d, "EEE", { locale: es })}
-            </p>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-7 gap-1.5">
-          {dias.map((dia) => {
-            const citas = delDia(dia);
-            const esHoy = isSameDay(dia, hoy);
-            const delMes = isSameMonth(dia, ancla);
-            const visibles = citas.slice(0, 3);
-
-            return (
-              <div
-                key={dia.toISOString()}
-                className={`flex min-h-[104px] flex-col gap-1 rounded-lg border p-1.5 ${
-                  delMes ? "border-border/60 bg-card" : "border-border/30 bg-muted/20"
-                }`}
-              >
-                <div className="flex items-center justify-between px-0.5">
-                  <span
-                    className={`text-[11px] font-semibold tabular-nums ${
-                      delMes ? "text-foreground" : "text-muted-foreground/40"
-                    }`}
-                  >
-                    {esHoy ? (
-                      <span
-                        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-white"
-                        style={{ background: "oklch(0.72 0.065 25)" }}
-                      >
-                        {format(dia, "d")}
-                      </span>
-                    ) : (
-                      format(dia, "d")
-                    )}
-                  </span>
-                  {citas.length > 0 && (
-                    <span className="text-[9px] text-muted-foreground/70">{citas.length}</span>
-                  )}
-                </div>
-
-                {visibles.map((c) => {
-                  const est = estadoConsulta(c.estado);
-                  const nombre = nombrePaciente(c);
-                  return (
-                    <Link
-                      key={c.id}
-                      href={`/dashboard/consultas/${c.id}`}
-                      className="flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:bg-muted"
-                      style={{ background: est.bg }}
-                      title={`${format(new Date(c.fecha), "HH:mm")} · ${nombre} · ${est.label}`}
-                    >
-                      <span
-                        className="h-1 w-1 flex-shrink-0 rounded-full"
-                        style={{ background: est.dot }}
-                      />
-                      <span className="text-[9px] font-semibold tabular-nums" style={{ color: est.color }}>
-                        {format(new Date(c.fecha), "HH:mm")}
-                      </span>
-                      <span className="truncate text-[9px]" style={{ color: est.color }}>
-                        {nombre}
-                      </span>
-                    </Link>
-                  );
-                })}
-
-                {citas.length > visibles.length && (
-                  <Link
-                    href={`/dashboard/agenda?vista=semana&ref=${format(dia, "yyyy-MM-dd")}`}
-                    className="px-1 text-[9px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                  >
-                    +{citas.length - visibles.length} más
-                  </Link>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Ficha de cita en la vista semanal ────────────────────────────────────────
-
-function TarjetaCita({ consulta }: { consulta: ConsultaAgenda }) {
-  const est = estadoConsulta(consulta.estado);
-  const nombre = nombrePaciente(consulta);
-  const cerrada = ESTADOS_CERRADOS.includes(consulta.estado);
-
-  return (
-    <div className="rounded-lg border border-border/60 bg-card px-3 py-2 transition-shadow hover:shadow-sm">
-      <div className="mb-1 flex items-center gap-1.5">
-        <div className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: est.dot }} />
-        <span className="text-[10px] font-semibold tabular-nums text-foreground">
-          {format(new Date(consulta.fecha), "HH:mm")}
-        </span>
-        <span className="ml-auto text-[9px]" style={{ color: est.color }}>
-          {est.label}
-        </span>
-      </div>
-
-      <p className="truncate text-[11px] font-medium leading-tight text-foreground">{nombre}</p>
-      {consulta.motivo && (
-        <p className="mt-0.5 truncate text-[10px] leading-tight text-muted-foreground">
-          {consulta.motivo}
-        </p>
-      )}
-      <p className="mt-1 truncate text-[9px] text-muted-foreground/60">{consulta.sede}</p>
-
-      <Link
-        href={`/dashboard/consultas/${consulta.id}`}
-        className="mt-1.5 block w-full rounded-md py-1 text-center text-[10px] font-medium tracking-wide transition-colors"
-        style={
-          cerrada
-            ? { background: "oklch(0.94 0.006 60)", color: "oklch(0.45 0.012 40)" }
-            : {
-                background: "oklch(0.45 0.13 155 / 0.12)",
-                color: "oklch(0.35 0.1 155)",
-                border: "1px solid oklch(0.45 0.13 155 / 0.25)",
-              }
-        }
-      >
-        {cerrada ? "Ver consulta" : "Atender →"}
-      </Link>
+      <AgendaArrastrable
+        vista={vista}
+        dias={dias}
+        hoy={enGuatemala(hoy).fecha}
+        mes={format(ancla, "yyyy-MM")}
+        citas={citas}
+        bloqueos={bloqueos}
+      />
     </div>
   );
 }
