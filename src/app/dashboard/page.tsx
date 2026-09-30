@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { format, parseISO, startOfDay, endOfDay } from "date-fns";
+import { format, parseISO } from "date-fns";
+import { diaGuatemala, enGuatemala, instanteGuatemala, paraMostrarEnGuatemala } from "@/lib/hora-guatemala";
 import { es } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, Users, CheckCircle2, Clock } from "lucide-react";
@@ -47,6 +48,10 @@ const SEDE_DOTS: Record<string, string> = {
 export default async function DashboardPage() {
   const supabase = await createClient();
   const hoy = new Date();
+  // El día de Guatemala, no el del servidor (UTC en producción): si no, las
+  // citas de la tarde aparecían en la agenda de mañana.
+  const { inicio: inicioHoy, fin: finHoy } = diaGuatemala(hoy);
+  const hoyLocal = paraMostrarEnGuatemala(hoy);
 
   const { data: solicitudes } = await supabase
     .from("solicitudes_cita")
@@ -61,8 +66,8 @@ export default async function DashboardPage() {
       `id, fecha, motivo, estado, sede, doctora_nombre, paciente_nombre, paciente_telefono,
        paciente:pacientes!consultas_paciente_id_fkey(primer_nombre, primer_apellido, telefono)`
     )
-    .gte("fecha", startOfDay(hoy).toISOString())
-    .lte("fecha", endOfDay(hoy).toISOString())
+    .gte("fecha", inicioHoy.toISOString())
+    .lte("fecha", finHoy.toISOString())
     .order("fecha", { ascending: true });
 
   // Doctoras activas para el selector al agendar una solicitud
@@ -85,8 +90,8 @@ export default async function DashboardPage() {
   const { count: consultasMes } = await supabase
     .from("consultas")
     .select("id", { count: "exact", head: true })
-    .gte("fecha", new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString())
-    .lte("fecha", endOfDay(hoy).toISOString());
+    .gte("fecha", instanteGuatemala(`${enGuatemala(hoy).fecha.slice(0, 7)}-01`, "00:00").toISOString())
+    .lte("fecha", finHoy.toISOString());
 
   const atendidas = consultas?.filter((c) => c.estado === "atendida").length ?? 0;
   const pendientes =
@@ -124,10 +129,10 @@ export default async function DashboardPage() {
       {/* Header */}
       <div className="mb-8">
         <p className="text-xs text-muted-foreground tracking-wider uppercase mb-1">
-          {format(hoy, "EEEE", { locale: es })}
+          {format(hoyLocal, "EEEE", { locale: es })}
         </p>
         <h1 className="text-2xl font-semibold text-foreground">
-          {format(hoy, "d 'de' MMMM, yyyy", { locale: es })}
+          {format(hoyLocal, "d 'de' MMMM, yyyy", { locale: es })}
         </h1>
       </div>
 
@@ -231,7 +236,7 @@ export default async function DashboardPage() {
                 primer_apellido: string;
                 telefono: string;
               } | null;
-              const hora = format(new Date(c.fecha), "HH:mm");
+              const hora = enGuatemala(c.fecha).hora;
 
               return (
                 <Link

@@ -11,6 +11,7 @@
  */
 
 import { SEDES, type Sede } from "@/lib/sedes";
+import { instanteGuatemala } from "@/lib/hora-guatemala";
 
 export type BloqueAtencion = {
   /** 1 = lunes … 6 = sábado. Domingo (0) cerrado. */
@@ -106,22 +107,26 @@ type Ocupacion = { desde: Date; hasta: Date };
  * no por hora exacta: una cita de 60 minutos tapa dos franjas de 30.
  */
 export function calcularFranjas({
-  dia,
+  fecha,
   sede,
   ocupaciones,
   ahora = new Date(),
 }: {
-  dia: Date;
+  /** "yyyy-MM-dd" */
+  fecha: string;
   sede?: string | null;
   ocupaciones: Ocupacion[];
   ahora?: Date;
 }): Franja[] {
   const minimo = new Date(ahora.getTime() + HORARIO.horasMinimasDeAnticipacion * 3600_000);
 
+  // Mediodía para que el día de la semana no cambie en ninguna zona horaria.
+  const dia = new Date(`${fecha}T12:00:00`);
+
   return franjasDelDia(dia, sede).map((hora) => {
-    const [h, m] = hora.split(":").map(Number);
-    const inicio = new Date(dia);
-    inicio.setHours(h, m, 0, 0);
+    // Hora de Guatemala: con setHours, en un servidor en UTC cada franja
+    // quedaba seis horas antes y no chocaba con las citas reales.
+    const inicio = instanteGuatemala(fecha, hora);
     const fin = new Date(inicio.getTime() + HORARIO.minutosPorFranja * 60_000);
 
     if (inicio < minimo) return { hora, disponible: false };

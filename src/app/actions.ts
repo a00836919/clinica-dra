@@ -461,7 +461,13 @@ export async function agendarSolicitud(
   if (!datos.fecha || !datos.hora) return { error: "Falta la fecha o la hora." };
   if (!datos.doctoraId) return { error: "Elige a la doctora que atiende." };
 
-  const cuando = new Date(`${datos.fecha}T${datos.hora}`);
+  // La hora que escribe la secretaria es de Guatemala. `new Date("…T09:00")`
+  // la leería en la zona del servidor, que en producción es UTC: la cita
+  // quedaba a las 3:00.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datos.fecha) || !/^\d{2}:\d{2}$/.test(datos.hora)) {
+    return { error: "La fecha o la hora no son válidas." };
+  }
+  const cuando = instanteGuatemala(datos.fecha, datos.hora);
   if (Number.isNaN(cuando.getTime())) return { error: "La fecha o la hora no son válidas." };
 
   const { data: solicitud, error: solError } = await supabase
@@ -779,7 +785,13 @@ export async function crearCita(datos: {
   if (!datos.fecha || !datos.hora) return { error: "Falta la fecha o la hora." };
   if (!datos.doctoraId) return { error: "Elige a la doctora que atiende." };
 
-  const cuando = new Date(`${datos.fecha}T${datos.hora}`);
+  // La hora que escribe la secretaria es de Guatemala. `new Date("…T09:00")`
+  // la leería en la zona del servidor, que en producción es UTC: la cita
+  // quedaba a las 3:00.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datos.fecha) || !/^\d{2}:\d{2}$/.test(datos.hora)) {
+    return { error: "La fecha o la hora no son válidas." };
+  }
+  const cuando = instanteGuatemala(datos.fecha, datos.hora);
   if (Number.isNaN(cuando.getTime())) return { error: "La fecha o la hora no son válidas." };
 
   const { data: paciente } = await supabase
@@ -948,16 +960,17 @@ export async function franjasDisponibles(
   fechaISO: string,
   sede?: string,
 ): Promise<{ hora: string; disponible: boolean }[]> {
-  const dia = parseISO(fechaISO);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaISO)) return [];
+  const dia = parseISO(`${fechaISO}T12:00:00`);
   if (Number.isNaN(dia.getTime()) || !esDiaAbierto(dia, sede)) return [];
 
   const supabase = createAdminClient();
   if (!supabase) return [];
 
-  const inicioDia = new Date(dia);
-  inicioDia.setHours(0, 0, 0, 0);
-  const finDia = new Date(dia);
-  finDia.setHours(23, 59, 59, 999);
+  // El día de Guatemala, no el del servidor: en UTC, el día empezaba a las
+  // 18:00 del anterior y las citas de la tarde caían fuera del rango.
+  const inicioDia = instanteGuatemala(fechaISO, "00:00");
+  const finDia = new Date(instanteGuatemala(fechaISO, "00:00").getTime() + 24 * 3600_000 - 1);
 
   const [{ data: citas }, { data: bloqueos }] = await Promise.all([
     supabase
@@ -989,7 +1002,7 @@ export async function franjasDisponibles(
       .map((b) => ({ desde: new Date(b.desde), hasta: new Date(b.hasta) })),
   ];
 
-  return calcularFranjas({ dia, sede, ocupaciones });
+  return calcularFranjas({ fecha: fechaISO, sede, ocupaciones });
 }
 
 // ── Bloqueos de agenda (personal) ───────────────────────────────────────────
@@ -1013,8 +1026,9 @@ export async function crearBloqueo(datos: {
   const sesion = await sesionStaff();
   if (!sesion) return { error: "Tu sesión expiró. Vuelve a entrar." };
 
-  const desde = new Date(datos.desde);
-  const hasta = new Date(datos.hasta);
+  // Llegan como "yyyy-MM-ddTHH:mm" en hora de Guatemala, no del servidor.
+  const desde = instanteDeFormulario(datos.desde);
+  const hasta = instanteDeFormulario(datos.hasta);
   if (Number.isNaN(desde.getTime()) || Number.isNaN(hasta.getTime())) {
     return { error: "Las fechas no son válidas." };
   }
@@ -1035,6 +1049,14 @@ export async function crearBloqueo(datos: {
   }
 
   return {};
+}
+
+function instanteDeFormulario(valor: string) {
+  const [fecha, hora] = valor.split("T");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha ?? "") || !/^\d{2}:\d{2}$/.test(hora ?? "")) {
+    return new Date(NaN);
+  }
+  return instanteGuatemala(fecha, hora);
 }
 
 export async function eliminarBloqueo(id: string): Promise<{ error?: string }> {

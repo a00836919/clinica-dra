@@ -4,6 +4,7 @@ import Link from "next/link";
 import { format, differenceInYears } from "date-fns";
 import { es } from "date-fns/locale";
 import { etiquetaCie10 } from "@/lib/cie10";
+import { enGuatemala, paraMostrarEnGuatemala } from "@/lib/hora-guatemala";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Phone,
@@ -340,10 +341,10 @@ export default async function PacientePage({
                           className="text-base font-medium text-foreground leading-tight"
                           style={{ fontFamily: "var(--font-playfair)" }}
                         >
-                          {format(new Date(c.fecha), "d 'de' MMMM, yyyy", { locale: es })}
+                          {format(paraMostrarEnGuatemala(c.fecha), "d 'de' MMMM, yyyy", { locale: es })}
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          {format(new Date(c.fecha), "HH:mm")} · {c.sede}
+                          {enGuatemala(c.fecha).hora} · {c.sede}
                           {doctora ? ` · ${doctora.nombre_completo}` : ""}
                         </p>
                       </div>

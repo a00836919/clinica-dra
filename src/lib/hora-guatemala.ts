@@ -33,3 +33,20 @@ export function enGuatemala(instante: Date | string) {
 export function diaSemana(fecha: string) {
   return new Date(`${fecha}T12:00:00Z`).getUTCDay();
 }
+
+/**
+ * Un Date cuya hora local es la de Guatemala, para pasárselo a `format` de
+ * date-fns en componentes de servidor: `format(new Date(fecha), "HH:mm")`
+ * imprime la hora del servidor, que en producción es UTC. Solo para mostrar;
+ * no se guarda ni se compara.
+ */
+export function paraMostrarEnGuatemala(instante: Date | string) {
+  const { fecha, hora } = enGuatemala(instante);
+  return new Date(`${fecha}T${hora}:00`);
+}
+
+/** Inicio y fin del día de Guatemala que contiene a `instante`. */
+export function diaGuatemala(instante: Date | string = new Date()) {
+  const inicio = instanteGuatemala(enGuatemala(instante).fecha, "00:00");
+  return { inicio, fin: new Date(inicio.getTime() + 24 * 3600_000 - 1) };
+}

@@ -1,3 +1,8 @@
+-- ⚠️ OBSOLETO — NO CORRER. Lo reemplaza permisos-seguridad.sql.
+-- "personal_gestiona" daba a cualquier usuario con sesión acceso total a los
+-- expedientes, sin importar sus permisos. Correrlo de nuevo reabre ese hueco.
+-- Se deja solo como historial.
+--
 -- Políticas de escritura para el personal.
 --
 -- Contexto: en esta app el ÚNICO que se autentica contra Supabase Auth es el

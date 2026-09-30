@@ -12,6 +12,7 @@ import { enlaceGoogleCalendar } from "@/lib/ics";
 import { HORARIO } from "@/lib/disponibilidad";
 import { nombreSedeCompleto } from "@/lib/sedes";
 import { etiquetaCie10 } from "@/lib/cie10";
+import { enGuatemala, paraMostrarEnGuatemala } from "@/lib/hora-guatemala";
 import {
   HistorialPaciente,
   type ConsultaHistorial,
@@ -21,7 +22,7 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: consulta } = await supabase
+  const { data: consulta, error } = await supabase
     .from("consultas")
     .select(
       `id, fecha, motivo, estado, sede, diagnostico, diagnostico_cie10, diagnostico_cie10_desc,
@@ -39,6 +40,9 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
     .eq("id", id)
     .maybeSingle();
 
+  // Un error de la consulta (columna o permiso) también deja `consulta` vacía
+  // y acababa en un 404 mudo; se registra para distinguirlo de un id inexistente.
+  if (error) console.error("[consulta] no se pudo leer la consulta", id, error);
   if (!consulta) notFound();
 
   const paciente = (Array.isArray(consulta.paciente) ? consulta.paciente[0] : consulta.paciente) as {
@@ -146,7 +150,7 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
       {/* Cabecera */}
       <div className="mb-6">
         <Link
-          href={`/dashboard/agenda?vista=semana&ref=${format(new Date(consulta.fecha), "yyyy-MM-dd")}`}
+          href={`/dashboard/agenda?vista=semana&ref=${enGuatemala(consulta.fecha).fecha}`}
           className="text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           ← Volver a la agenda
@@ -165,7 +169,7 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
                 <span className="text-[10px] text-muted-foreground">
                   Resumen enviado
                   {consulta.receta_enviada_en
-                    ? ` el ${format(new Date(consulta.receta_enviada_en), "d MMM yyyy, HH:mm", { locale: es })}`
+                    ? ` el ${format(paraMostrarEnGuatemala(consulta.receta_enviada_en), "d MMM yyyy, HH:mm", { locale: es })}`
                     : ""}
                 </span>
               )}
@@ -173,7 +177,7 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
 
             <h1 className="text-2xl font-semibold text-foreground">{nombre}</h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              {format(new Date(consulta.fecha), "EEEE d 'de' MMMM yyyy, HH:mm", { locale: es })} ·{" "}
+              {format(paraMostrarEnGuatemala(consulta.fecha), "EEEE d 'de' MMMM yyyy, HH:mm", { locale: es })} ·{" "}
               {consulta.sede}
               {consulta.doctora_nombre ? ` · ${consulta.doctora_nombre}` : ""}
             </p>
