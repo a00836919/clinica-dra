@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
-import type { Medicamento } from "@/app/actions";
 import { etiquetaCie10 } from "@/lib/cie10";
+import { leerMedicamentos } from "@/lib/medicamentos";
 import { generarRecetaPdf, nombreArchivoReceta } from "@/lib/receta-pdf";
 
 /**
@@ -34,8 +34,9 @@ export async function GET(_request: Request, ctx: RouteContext<"/dashboard/consu
   if (!consulta) return new Response("No encontramos esa consulta.", { status: 404 });
 
   const uno = <T,>(v: T | T[] | null) => (Array.isArray(v) ? (v[0] ?? null) : v);
-  const receta = uno(consulta.recetas as { medicamentos: Medicamento[] }[] | null);
-  if (!receta?.medicamentos?.length) {
+  const receta = uno(consulta.recetas as { medicamentos: unknown }[] | null);
+  const medicamentos = leerMedicamentos(receta?.medicamentos);
+  if (!medicamentos.length) {
     return new Response("Esta consulta no tiene receta.", { status: 404 });
   }
 
@@ -53,7 +54,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/dashboard/consu
     doctora: doctora?.nombre_completo ?? doctora?.nombre_agenda ?? consulta.doctora_nombre,
     diagnostico: consulta.diagnostico,
     cie10: etiquetaCie10(consulta.diagnostico_cie10, consulta.diagnostico_cie10_desc),
-    medicamentos: receta.medicamentos,
+    medicamentos,
     indicaciones: consulta.tratamiento,
     proximoControl: consulta.proxima_control,
   });

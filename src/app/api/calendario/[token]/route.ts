@@ -25,9 +25,15 @@ const ESTADO_ICS: Record<string, EventoIcs["estado"]> = {
   agendada: "TENTATIVE",
   confirmada: "CONFIRMED",
   atendida: "CONFIRMED",
-  cancelada: "CANCELLED",
-  no_asistio: "CANCELLED",
 };
+
+/**
+ * Las canceladas y las que no asistieron no se publican. En una suscripción no
+ * todos los calendarios respetan STATUS:CANCELLED (Google puede seguir
+ * mostrando el evento); todos, en cambio, borran el que deja de venir en el
+ * archivo.
+ */
+const ESTADOS_OCULTOS = "(cancelada,no_asistio)";
 
 type PacienteFila = { primer_nombre: string; primer_apellido: string; telefono: string | null };
 
@@ -93,6 +99,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/calendario/[
        paciente:pacientes!consultas_paciente_id_fkey(primer_nombre, primer_apellido, telefono)`,
     )
     .eq("doctora_id", doctora.id)
+    .not("estado", "in", ESTADOS_OCULTOS)
     .gte("fecha", desde.toISOString())
     .lte("fecha", hasta.toISOString())
     .order("fecha");

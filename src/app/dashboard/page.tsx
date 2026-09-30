@@ -66,6 +66,7 @@ export default async function DashboardPage() {
       `id, fecha, motivo, estado, sede, doctora_nombre, paciente_nombre, paciente_telefono,
        paciente:pacientes!consultas_paciente_id_fkey(primer_nombre, primer_apellido, telefono)`
     )
+    .neq("estado", "cancelada")
     .gte("fecha", inicioHoy.toISOString())
     .lte("fecha", finHoy.toISOString())
     .order("fecha", { ascending: true });

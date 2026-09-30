@@ -21,6 +21,7 @@ import { parseISO } from "date-fns";
 import { calcularFranjas, esDiaAbierto, franjasDelDia, HORARIO } from "@/lib/disponibilidad";
 import { VERSION_CONSENTIMIENTO } from "@/lib/consentimiento";
 import { descripcionCie10, etiquetaCie10 } from "@/lib/cie10";
+import { leerMedicamentos } from "@/lib/medicamentos";
 import {
   nombreEnFrase,
   normalizarIdentificacion,
@@ -349,6 +350,17 @@ async function cancelar(
   if (error) return { error: "No se pudo cancelar." };
   if (!solicitud) return { error: "Esta solicitud ya no se puede cancelar." };
 
+  // Si ya estaba agendada, la cita que se creó se cancela también: si no,
+  // seguía ocupando la agenda y el calendario de la doctora. Las agendadas
+  // antes de ligar citas y solicitudes no la encuentran y hay que cancelarlas
+  // desde la agenda.
+  const { error: citaError } = await supabase
+    .from("consultas")
+    .update({ estado: "cancelada" })
+    .eq("origen", "solicitud")
+    .eq("origen_id", solicitudId)
+    .in("estado", ["agendada", "confirmada"]);
+
   if (solicitud.email) {
     await enviarConfirmacionCancelacion({
       to: solicitud.email,
@@ -357,6 +369,11 @@ async function cancelar(
       sede: solicitud.sede,
       origen,
     });
+  }
+
+  if (citaError) {
+    console.error("[solicitud] se canceló, pero su cita no:", citaError);
+    return { error: "La solicitud se canceló, pero la cita sigue en la agenda. Cancélala desde ahí." };
   }
 
   return {};
@@ -418,7 +435,7 @@ export async function finalizarConsulta(consultaId: string): Promise<{ error?: s
       cie10: etiquetaCie10(consulta.diagnostico_cie10, consulta.diagnostico_cie10_desc),
       tratamiento: consulta.tratamiento,
       notas: consulta.notas,
-    medicamentos: receta?.medicamentos ?? null,
+    medicamentos: leerMedicamentos(receta?.medicamentos),
   });
 
   // Solo se marca como enviada si el servidor de correo la aceptó, para que
@@ -499,6 +516,11 @@ export async function agendarSolicitud(
     fecha: cuando.toISOString(),
     motivo: solicitud.motivo,
     estado: "agendada",
+    // Liga la cita a su solicitud: si luego se cancela la solicitud, la cita
+    // se cancela con ella. El índice único de origen_id impide además
+    // agendar dos veces la misma solicitud.
+    origen: "solicitud",
+    origen_id: solicitudId,
   });
 
   if (citaError) {

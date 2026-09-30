@@ -6,12 +6,12 @@ import { es } from "date-fns/locale";
 import { estadoConsulta, ESTADOS_CERRADOS } from "@/lib/estados";
 import { CierreConsultaForm } from "@/components/dashboard/cierre-consulta-form";
 import { ControlesConsulta } from "@/components/dashboard/controles-consulta";
-import type { Medicamento } from "@/app/actions";
 import { tipoIdentificacion } from "@/lib/identificacion";
 import { enlaceGoogleCalendar } from "@/lib/ics";
 import { HORARIO } from "@/lib/disponibilidad";
 import { nombreSedeCompleto } from "@/lib/sedes";
 import { etiquetaCie10 } from "@/lib/cie10";
+import { leerMedicamentos } from "@/lib/medicamentos";
 import { enGuatemala, paraMostrarEnGuatemala } from "@/lib/hora-guatemala";
 import {
   HistorialPaciente,
@@ -117,7 +117,7 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
         tratamiento: c.tratamiento,
         notas: c.notas,
         proximoControl: c.proxima_control,
-        medicamentos: ((r as { medicamentos?: Medicamento[] } | null)?.medicamentos ?? []) as Medicamento[],
+        medicamentos: leerMedicamentos((r as { medicamentos?: unknown } | null)?.medicamentos),
       };
     })
     // Una cita de la app que nunca se atendió no aporta nada clínico. Las del
@@ -128,7 +128,7 @@ export default async function ConsultaPage({ params }: { params: Promise<{ id: s
     );
 
   const receta = Array.isArray(consulta.recetas) ? consulta.recetas[0] : null;
-  const medicamentos = (receta?.medicamentos ?? []) as Medicamento[];
+  const medicamentos = leerMedicamentos(receta?.medicamentos);
   const est = estadoConsulta(consulta.estado);
   const cerrada = ESTADOS_CERRADOS.includes(consulta.estado);
   const nombre = paciente

@@ -515,7 +515,7 @@ function FichaCita({
       title={`${hora} · ${cita.nombre}${cita.motivo ? ` · ${cita.motivo}` : ""} · ${est.label}`}
       className={`absolute z-[2] flex touch-manipulation select-none flex-col justify-center overflow-hidden rounded-md border-l-[3px] px-1.5 text-left shadow-[0_1px_2px_oklch(0_0_0/0.06)] [-webkit-touch-callout:none] focus-visible:outline-2 focus-visible:outline-offset-1 ${
         movible ? "cursor-grab active:cursor-grabbing" : "cursor-default"
-      } ${cita.estado === "cancelada" ? "line-through" : ""}`}
+      }`}
       style={{
         ...style,
         background: est.bg,

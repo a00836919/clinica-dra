@@ -85,6 +85,8 @@ export default async function AgendaPage({
         `id, fecha, motivo, estado, sede, doctora_id, paciente_nombre,
          paciente:pacientes!consultas_paciente_id_fkey(primer_nombre, primer_apellido, email)`,
       )
+      // Las canceladas no se muestran: siguen en el expediente del paciente.
+      .neq("estado", "cancelada")
       .gte("fecha", addDays(desde, -1).toISOString())
       .lte("fecha", addDays(hasta, 2).toISOString())
       .order("fecha", { ascending: true }),

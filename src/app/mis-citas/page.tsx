@@ -6,6 +6,7 @@ import { es } from "date-fns/locale";
 import { CancelarSolicitudBtn } from "@/components/portal/cancelar-btn";
 import { logoutPortal } from "@/app/actions";
 import { etiquetaCie10 } from "@/lib/cie10";
+import { leerMedicamentos } from "@/lib/medicamentos";
 
 const ESTADO_LABEL: Record<string, { label: string; color: string }> = {
   pendiente:  { label: "Pendiente",  color: "oklch(0.55 0.09 70)" },
@@ -147,7 +148,7 @@ export default async function MisCitasPage() {
               {consultas.map((c) => {
                 const doctora = Array.isArray(c.doctora) ? c.doctora[0] : c.doctora as { nombre_completo: string } | null;
                 const receta = Array.isArray(c.recetas) ? c.recetas[0] : null as { id: string; medicamentos: unknown; fecha_emision: string } | null;
-                const meds = (receta?.medicamentos ?? []) as Array<{ nombre: string; dosis?: string; instrucciones?: string }>;
+                const meds = leerMedicamentos(receta?.medicamentos);
 
                 return (
                   <div
